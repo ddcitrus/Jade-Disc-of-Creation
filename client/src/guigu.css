@@ -1,0 +1,1539 @@
+/* ============================================================
+   造化玉碟 · 鬼谷八荒 换肤层（guigu.css）
+   ------------------------------------------------------------
+   这一层只做「长相」，一个字都不碰布局、尺寸与游戏规则：
+     · 令牌（颜色 / 字体 / 阴影）整体换成「玄色水墨 + 鎏金」
+     · 把 theme.css 与 polish.css 里那些写死的浅色（#fff / #fffdf6 / #fbf5e1…）
+       逐条覆盖成深色，否则深底上会出现一块块刺眼的白斑
+     · 补上国风装饰件：双线金框、云纹角、朱印、卷轴分隔
+   载入顺序：theme.css → polish.css → guigu.css（本文件最后，同权重覆盖前者）
+
+   原则（沿用原设计系统，不破坏它）：
+     8px 网格不动 · 字号层级不动 · 控件最小高度不动 · 拖拽相关的 user-select 不动
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. 令牌：玄色（墨底）＋ 鎏金（亮金）
+   ------------------------------------------------------------ */
+:root {
+  color-scheme: dark;
+
+  /* 底：偏暖的墨褐，不用中性黑 —— 中性黑配金色会显得脏 */
+  --bg-0: #100d08;          /* 页面底（最深） */
+  --bg-1: #1d1710;          /* 面板 */
+  --bg-2: #251e14;          /* 次级底 */
+  --bg-3: #322818;          /* 三级底 */
+
+  /* ==================================================================
+     语义色槽
+     ------------------------------------------------------------------
+     下面这些是给「组件」用的：条状容器、卡片、凹槽、按钮、表格……
+     以前它们是直接写死深色的（#14100a / #1c1610 之类），一旦要出亮色版
+     就会一块块发黑。现在全部提成名字，两套主题各给一次取值 ——
+     组件里**不许再出现写死的颜色**，否则亮色版必然漏黑。
+     ================================================================== */
+
+  /* 条状容器（顶栏、底栏、导航列、页头、抽屉头）的渐变两端 */
+  --surface-bar-a: #1c1610;   --surface-bar-b: #151009;
+  --surface-nav-a: #1b150e;   --surface-nav-b: #14100a;
+  --surface-head-a: #1c1610;  --surface-head-b: #171209;
+
+  /* 卡片 / 可点块的渐变两端（-hi 是悬停/选中态） */
+  --surface-card-a: #1e1810;  --surface-card-b: #18130c;
+  --surface-card-hi-a: #2a2113; --surface-card-hi-b: #201a0f;
+
+  /* 凹槽类底（内嵌、输入、代码、战场）—— 一律比所在容器更深 */
+  --surface-well:  #14100a;   /* 输入框 / 内嵌面板 */
+  --surface-deep:  #0d0a06;   /* 属性条槽 / 报告槽 */
+  --surface-code:  #0b0906;   /* 代码与提示词预览 */
+  --surface-field: #0c0a06;   /* 战场画布 / 战报 */
+  --surface-thead: #241d12;   /* 表格表头 */
+  --surface-key:   #1f1910;   /* 表格键列 */
+  --surface-switch: #3a3122;  /* 开关滑轨（关态） */
+  --surface-knob:   #cdbe97;  /* 开关滑块 */
+  --surface-cell:   #332a19;  /* 分段条未选中格 */
+  --surface-cell-hi:#3f3520;
+
+  /* 按钮三态 */
+  --btn-a: #2b2416;        --btn-b: #1f1a10;
+  --btn-hover-a: #3a301b;  --btn-hover-b: #271f12;
+  --btn-danger-a: #351f1a; --btn-danger-b: #261614;
+
+  /* 鎏金主按钮（渐变 + 上面的字）*/
+  --gold-btn-a: #e8ca7c; --gold-btn-b: #c9a548; --gold-btn-c: #a8842f;
+  --gold-btn-hi-a: #f2d891; --gold-btn-hi-b: #d4b054; --gold-btn-hi-c: #b58f35;
+  --on-gold: #241c08;
+  --on-gold-strong: #1c1507;
+
+  /* 鎏金底纹（透明度分三档，从极淡到明显）*/
+  --gold-tint: rgba(214, 186, 110, 0.10);
+  --gold-tint-2: rgba(214, 186, 110, 0.16);
+
+  /* 极细分隔线（比 --border 轻一档，用在行与行之间）*/
+  --hair: rgba(206, 176, 104, 0.13);
+
+  /* 滚动条 */
+  --thumb-a: #6f5c30; --thumb-b: #473a1d;
+  --thumb-a-hi: #9a8244; --thumb-b-hi: #6a5729;
+
+  /* 危险色上的文字（比 --danger 亮一档，保证压得过深底）*/
+  --danger-text: #f0a48e;
+
+  /* 正文纸上/纸下的两档（亮色版会把它们翻过来）*/
+  --prose-ink: var(--text);
+  --prose-paper: transparent;
+
+  /* 遮罩 / 压暗层（原来是 rgba(0,0,0,…)，亮色下要换成暖褐，否则发脏）*/
+  --scrim: rgba(0, 0, 0, 0.30);
+  /* ⚠ 原来自引用写成 `var(--scrim-strong)` —— 自定义属性自引用是**无效值**，
+     于是深色主题下所有取它的地方（滚动条槽、滑块描边）一直拿不到颜色。
+     亮色块里给了真值，所以只有深色是坏的，肉眼很难注意到。 */
+  --scrim-strong: rgba(0, 0, 0, 0.34);
+  /* 正文卡片的那层「纸」底色（半透明，让底纹透出来）*/
+  --paper-veil: rgba(26, 21, 13, 0.86);
+  --paper-veil-strong: rgba(26, 21, 13, 0.90);
+
+  /* 世界地图画布 */
+  --map-bg: #0b1410;
+
+  /* 战斗壳（顶/侧/浮签都是半透明渐变，必须单独给名字）*/
+  --battle-top-a: rgba(38, 31, 18, 0.95);  --battle-top-b: rgba(26, 21, 12, 0.95);
+  --battle-side-a: rgba(30, 24, 15, 0.94); --battle-side-b: rgba(21, 17, 10, 0.95);
+  --battle-chip-a: rgba(38, 31, 18, 0.96); --battle-chip-b: rgba(24, 19, 11, 0.97);
+  --shell-grad-a: #1e1810; --shell-grad-b: #16110a;
+
+  /* 主菜单：菜单牌（木牌）与底部压暗 */
+  --menu-btn-a: rgba(40, 33, 20, 0.95);  --menu-btn-b: rgba(24, 19, 12, 0.95);
+  --splash-veil: rgba(0, 0, 0, 0.5);
+
+  /* 剧情卷轴那张「宣纸」的底色 */
+  --paper-a: rgba(32, 26, 16, 0.90);  --paper-b: rgba(20, 16, 10, 0.92);
+
+  /* 弹窗遮罩（压暗层） */
+  --overlay-a: rgba(10, 7, 3, 0.62);  --overlay-b: rgba(6, 4, 2, 0.82);
+
+  /* 正文里那颗选项按钮（竹简） */
+  --option-btn-a: rgba(38, 32, 20, 0.88);  --option-btn-b: rgba(27, 22, 14, 0.86);
+
+  /* 对话气泡（也是「一张纸」）：常态 / 玩家自己说的那条 */
+  --bubble-a: rgba(38, 32, 20, 0.92);          --bubble-b: rgba(28, 23, 15, 0.90);
+  --bubble-player-a: rgba(52, 42, 22, 0.90);   --bubble-player-b: rgba(34, 27, 16, 0.88);
+
+  --gold: #e8ca7c;          /* 主色：标题 / 强调（对 --bg-1 对比 ≥ 10:1） */
+  --gold-dim: #cfb063;      /* 次主色 */
+  --gold-dark: #8b7030;     /* 装饰边（深金） */
+  --gold-bg: rgba(214, 186, 110, 0.13);
+
+  --text: #eee5cd;          /* 正文 */
+  --text-dim: #c0b394;      /* 次级文字 */
+  --text-faint: #948868;    /* 弱提示 */
+
+  --border: #463b28;
+  --border-gold: rgba(206, 176, 104, 0.46);
+
+  --green: #93c26e;  --green-bg: rgba(147, 194, 110, 0.13);
+  --red: #e08468;    --red-bg: rgba(224, 132, 104, 0.13);
+  --blue: #86b6e6;   --blue-bg: rgba(134, 182, 230, 0.13);
+  --danger: #e08468;
+
+  /* 字体：三层，各管一处，绝不交叉 —— 上一版「乱、看不清」就是层与层串了。
+       title —— 只给主菜单/顶栏那种 ≥24px 的大字用。（行楷是大字字体，
+                一落到 13px 的按钮上笔画会连成一片，那就是"糊"的直接来源。）
+       ui    —— 其余**所有**界面文字：标签、按钮、列表、表单、表格。走黑体，
+                中文小字只有黑体在屏上能立住笔画。
+       serif —— 分区标题、天道口吻、引文，介于两者之间。
+       prose —— 只有小说正文。字号行高都比界面大一号。
+     旧的 --font-display 已全站改名（原来它指向行楷，被到处引用 ⇒ 满屏糊字），
+     这里直接删掉，免得下次有人又拿它一把刷。 */
+  --font-title: "STXingkai", "华文行楷", "STKaiti", "华文楷体", serif;
+  --font-ui: "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", "PingFang SC", "Hiragino Sans GB", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "STKaiti", "华文楷体", "KaiTi", "楷体", serif;
+  --font-prose: "STSong", "华文宋体", "STZhongs", "华文中宋", "SimSun", "宋体", serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.55);
+  --shadow-3: 0 16px 48px rgba(0, 0, 0, 0.72);
+
+  /* 装饰用：金线（用于分隔、卷轴横杆） */
+  --gold-line: rgba(206, 176, 104, 0.42);
+  --ink-line: linear-gradient(90deg, transparent, rgba(206, 176, 104, 0.5), transparent);
+
+  /* polish.css 追加的几件：它们带的是「浅底上的暖色阴影」，深底上会发糊/发亮，一并换掉 */
+  --gold-grad: linear-gradient(180deg, #e8ca7c 0%, #cfb063 46%, #8b7030 100%);
+  --shadow-soft: 0 2px 6px rgba(0, 0, 0, 0.5), 0 10px 28px rgba(0, 0, 0, 0.45);
+  --shadow-lift: 0 6px 16px rgba(0, 0, 0, 0.6), 0 18px 44px rgba(0, 0, 0, 0.6);
+  --ring-gold: 0 0 0 1px rgba(214, 186, 110, 0.42);
+}
+
+/* ------------------------------------------------------------
+   1b. 宣纸（亮色主题）
+   ------------------------------------------------------------
+   由 `<html data-theme="light">` 触发。和上面那套**同名同序**，
+   只换取值 —— 所以切换主题不会牵动任何布局与尺寸。
+   取值原则：
+     · 底色一律带暖（宣纸米黄），不用纯白，纯白配金色会发贼
+     · 金色在白底上必须**压深**（#8a6a1c），沿用深色版的亮金会直接看不见
+     · 阴影换成暖褐半透明，不能用黑色（白底上的黑阴影会脏）
+     · 对比度按 ≥4.5:1 取值（正文）／≥3:1（大字与边框）
+   ------------------------------------------------------------ */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-0: #f2e9d4;
+  --bg-1: #fdf8ec;
+  --bg-2: #f7f0df;
+  --bg-3: #f0e6cd;
+
+  --surface-bar-a: #f6eeda;  --surface-bar-b: #eee2c8;
+  --surface-nav-a: #f7f0dd;  --surface-nav-b: #efe4ca;
+  --surface-head-a: #f6eeda; --surface-head-b: #f0e5cb;
+
+  --surface-card-a: #fdf8ec;  --surface-card-b: #f8f1df;
+  --surface-card-hi-a: #fffdf6; --surface-card-hi-b: #fbf5e6;
+
+  --surface-well:  #f3ead4;
+  --surface-deep:  #ece0c4;
+  --surface-code:  #f0e7d2;
+  --surface-field: #e9dcc0;
+  --surface-thead: #eadfc4;
+  --surface-key:   #f0e7d2;
+  --surface-switch: #cfc0a0;
+  --surface-knob:   #fdf8ec;
+  --surface-cell:   #e6d9bc;
+  --surface-cell-hi:#dbcaa2;
+
+  --btn-a: #f7efdc;        --btn-b: #efe4c9;
+  --btn-hover-a: #fdf8ec;  --btn-hover-b: #f4ead5;
+  --btn-danger-a: #f9e3dc; --btn-danger-b: #f2d3c9;
+
+  --gold-btn-a: #e0bc68; --gold-btn-b: #c39c40; --gold-btn-c: #9a7728;
+  --gold-btn-hi-a: #eccb7c; --gold-btn-hi-b: #cfa84c; --gold-btn-hi-c: #a8842f;
+  --on-gold: #2c2410;
+  --on-gold-strong: #221b0a;
+
+  --gold: #8a6a1c;
+  --gold-dim: #9c7c28;
+  --gold-dark: #c2a45c;
+  --gold-bg: rgba(154, 122, 40, 0.12);
+  --gold-tint: rgba(154, 122, 40, 0.09);
+  --gold-tint-2: rgba(154, 122, 40, 0.15);
+
+  --text: #2b2415;
+  --text-dim: #5a5036;
+  --text-faint: #8b7c5c;
+
+  --border: #ded0ac;
+  --border-gold: rgba(154, 122, 40, 0.42);
+  --hair: rgba(154, 122, 40, 0.16);
+
+  --green: #4a7a2e;  --green-bg: rgba(74, 122, 46, 0.12);
+  --red: #a8452c;    --red-bg: rgba(168, 69, 44, 0.12);
+  --blue: #2f6390;   --blue-bg: rgba(47, 99, 144, 0.12);
+  --danger: #a8452c;
+  --danger-text: #8e3520;
+
+  --thumb-a: #c9b78a; --thumb-b: #b5a173;
+  --thumb-a-hi: #b9a476; --thumb-b-hi: #a08c5c;
+
+  --shadow-1: 0 1px 2px rgba(96, 78, 38, 0.16);
+  --shadow-2: 0 4px 14px rgba(96, 78, 38, 0.14);
+  --shadow-3: 0 16px 44px rgba(80, 62, 26, 0.20);
+  --shadow-soft: 0 2px 6px rgba(96, 78, 38, 0.12), 0 10px 26px rgba(96, 78, 38, 0.14);
+  --shadow-lift: 0 6px 16px rgba(96, 78, 38, 0.16), 0 18px 40px rgba(96, 78, 38, 0.18);
+
+  --gold-line: rgba(154, 122, 40, 0.38);
+  --ink-line: linear-gradient(90deg, transparent, rgba(154, 122, 40, 0.5), transparent);
+  --gold-grad: linear-gradient(180deg, #e0bc68 0%, #c39c40 46%, #9a7728 100%);
+  --ring-gold: 0 0 0 1px rgba(154, 122, 40, 0.35);
+
+  --prose-ink: #2b2415;
+  --prose-paper: rgba(255, 252, 244, 0.55);
+
+  --scrim: rgba(120, 100, 60, 0.10);
+  --scrim-strong: rgba(120, 100, 60, 0.14);
+  --paper-veil: rgba(253, 248, 236, 0.92);
+  --paper-veil-strong: rgba(255, 253, 246, 0.95);
+
+  --map-bg: #e6dcbe;
+
+  --battle-top-a: rgba(250, 243, 228, 0.96);  --battle-top-b: rgba(244, 236, 217, 0.97);
+  --battle-side-a: rgba(248, 240, 223, 0.95); --battle-side-b: rgba(242, 234, 214, 0.96);
+  --battle-chip-a: rgba(250, 243, 228, 0.97); --battle-chip-b: rgba(243, 235, 215, 0.98);
+  --shell-grad-a: #f8f1df; --shell-grad-b: #f2e9d4;
+
+  --menu-btn-a: rgba(253, 249, 240, 0.96); --menu-btn-b: rgba(244, 236, 217, 0.96);
+  --splash-veil: rgba(120, 100, 60, 0.16);
+  --paper-a: rgba(255, 253, 247, 0.94);    --paper-b: rgba(247, 240, 224, 0.95);
+  --overlay-a: rgba(60, 48, 26, 0.42);     --overlay-b: rgba(48, 38, 20, 0.55);
+  --option-btn-a: rgba(255, 252, 244, 0.92); --option-btn-b: rgba(247, 240, 224, 0.92);
+  --bubble-a: rgba(255, 253, 247, 0.93);        --bubble-b: rgba(247, 240, 224, 0.92);
+  --bubble-player-a: rgba(248, 238, 214, 0.94); --bubble-player-b: rgba(240, 229, 200, 0.92);
+}
+
+/* ------------------------------------------------------------
+   2. 底：水墨山水（远山 + 云气 + 金纹），固定不随滚动
+   ------------------------------------------------------------ */
+/* 远山：三层山脊，越近越暗、金边越明显 —— 纯 CSS 画不出山，
+   所以这里内联一段极小体量的 SVG（不许外链，否则离线就白底）。
+   山脊线用金而不是黑，是为了让深底「有东西可看」又不抢主体内容。 */
+body {
+  background-color: var(--bg-0);
+  background-image:
+    /* 顶部天光 */
+    radial-gradient(ellipse 74% 42% at 50% -6%, rgba(214, 186, 110, 0.11), transparent 62%),
+    /* 两侧云气（冷调，与金色形成冷暖对比） */
+    radial-gradient(ellipse 46% 38% at 8% 16%, rgba(94, 132, 122, 0.055), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 94% 74%, rgba(94, 132, 122, 0.045), transparent 72%),
+    /* 远山剪影：三层山脊（平滑曲线，不是折线）＋ 一轮淡月 ＋ 几缕云气 ＋ 三株松影。
+       填充色一层比一层深 ⇒ 近山压远山，自然出纵深；山脊线留一道金边当"月光勾边"。 */
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 560'%3E%3Ccircle cx='1150' cy='138' r='72' fill='%23ceb068' fill-opacity='.05'/%3E%3Ccircle cx='1150' cy='138' r='72' fill='none' stroke='%23ceb068' stroke-opacity='.12'/%3E%3Cg fill='none' stroke='%23ceb068' stroke-opacity='.09' stroke-width='1.3'%3E%3Cpath d='M170 156c16-24 48-24 62-4 13-18 44-15 48 6'/%3E%3Cpath d='M690 92c12-18 36-18 46-3 11-13 32-11 36 5'/%3E%3Cpath d='M1010 202c14-20 42-20 54-3 12-15 38-13 42 5'/%3E%3C/g%3E%3Cpath fill='%23181207' stroke='%23ceb068' stroke-opacity='.10' d='M0 356C70 330 110 268 178 286 236 302 268 236 336 256 396 274 430 196 508 226 560 246 592 190 668 214 730 234 768 172 842 202 906 228 946 186 1024 212 1090 234 1128 196 1200 218 1268 238 1320 210 1382 228 1410 236 1428 240 1440 244L1440 560 0 560Z'/%3E%3Cpath fill='%23130e07' stroke='%23ceb068' stroke-opacity='.14' d='M0 424C86 400 132 348 208 368 288 388 336 322 424 346 512 370 566 312 660 336 748 358 802 304 896 328 986 350 1042 306 1136 330 1216 350 1272 320 1352 342 1396 354 1420 356 1440 360L1440 560 0 560Z'/%3E%3Cg fill='%23ceb068' fill-opacity='.11'%3E%3Cpath transform='translate(286,344) scale(1.4)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3Cpath transform='translate(314,352) scale(1.1)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3Cpath transform='translate(1004,338) scale(1.25)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3C/g%3E%3Cpath fill='%230e0a05' stroke='%23ceb068' stroke-opacity='.19' d='M0 494C96 474 156 434 252 454 344 472 404 426 502 448 600 470 664 428 764 448 862 468 926 430 1024 450 1114 468 1178 438 1268 456 1338 470 1398 462 1440 466L1440 560 0 560Z'/%3E%3C/svg%3E"),
+    /* 斜向金纹（极淡，负责"纸纹"质感） */
+    repeating-linear-gradient(135deg,
+      transparent 0 26px, rgba(206, 176, 104, 0.026) 26px 27px),
+    repeating-linear-gradient(45deg,
+      transparent 0 82px, rgba(206, 176, 104, 0.020) 82px 83px),
+    radial-gradient(ellipse at 50% 112%, #171208 0%, #100d08 64%);
+  background-attachment: fixed;
+  background-size: auto, auto, auto, 100% auto, auto, auto, auto;
+  background-position: 0 0, 0 0, 0 0, center bottom, 0 0, 0 0, 0 0;
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat, repeat, no-repeat;
+  color: var(--text);
+}
+
+/* 界面的默认字：黑体。
+   上一版把楷体/宋体一路铺到按钮、列表、表单上 —— 13px 的中文楷体笔画会糊成一片，
+   「乱、看不清」就是这个来的。现在只有四处例外：
+     · 主菜单大标题        → 行楷（.splash .main-title，见文件末尾）
+     · 各级标题 h1~h4      → 楷体（字号本来就大，不会糊）
+     · 小说正文与正文块    → 宋体（.story-text / .mortal-*）
+     · 其余全部            → 黑体（就是下面这一条） */
+body, button, input, select, textarea, optgroup, kbd, samp {
+  font-family: var(--font-ui);
+}
+/* 标题：楷体 + 加粗；字距从 3px 收到 1~2px（原来 3px 配小字号像散架） */
+h1, h2 { font-family: var(--font-serif); font-weight: 600; color: var(--gold); letter-spacing: 2px; }
+h3 { font-family: var(--font-serif); font-weight: 600; color: var(--gold); letter-spacing: 1px; }
+h4 { font-family: var(--font-serif); font-weight: 600; color: var(--gold-dim); }
+
+/* 选中文字：朱砂底金字 */
+::selection { background: rgba(214, 186, 110, 0.3); color: #fff8e8; }
+
+/* 滚动条：细金 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--scrim-strong); }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--thumb-a), var(--thumb-b));
+  border: 2px solid var(--scrim-strong); border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, var(--thumb-a-hi), var(--thumb-b-hi)); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ------------------------------------------------------------
+   3. 装饰件：云纹角 + 金线分隔
+   ------------------------------------------------------------ */
+/* 云纹角的两个镜像（左上开口朝右下 / 右下开口朝左上）。
+   之所以写成两条常量而不是给伪元素加 transform：背景图层不能旋转，
+   而换成 ::before/::after 又会和已有的金色顶光抢占名额。 */
+:root {
+  --gg-corner-tl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M1 15V8a7 7 0 0 1 7-7h7' fill='none' stroke='%23ceb068' stroke-width='1.1' stroke-opacity='.55'/%3E%3Cpath d='M4.5 13V9a4.5 4.5 0 0 1 4.5-4.5h4' fill='none' stroke='%23ceb068' stroke-width='.8' stroke-opacity='.34'/%3E%3C/svg%3E");
+  --gg-corner-br: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M25 11v7a7 7 0 0 1-7 7h-7' fill='none' stroke='%23ceb068' stroke-width='1.1' stroke-opacity='.55'/%3E%3Cpath d='M21.5 13v4a4.5 4.5 0 0 1-4.5 4.5h-4' fill='none' stroke='%23ceb068' stroke-width='.8' stroke-opacity='.34'/%3E%3C/svg%3E");
+}
+
+/* 只给「大件」加云纹角：弹窗、两个抽屉、地图画框、战斗壳。
+   小卡片上加会显得吵。 */
+.gg-corner {
+  background-image: var(--gg-corner-tl), var(--gg-corner-br);
+  background-repeat: no-repeat, no-repeat;
+  background-position: left top, right bottom;
+  background-size: 24px 24px, 24px 24px;
+}
+
+/* 金线分隔（横）：给需要「卷轴横杆」感的地方用 */
+.gg-rule {
+  height: 1px;
+  background: var(--ink-line);
+  margin: var(--s3) 0;
+  position: relative;
+}
+.gg-rule::after {
+  content: '';
+  position: absolute; left: 50%; top: 50%;
+  width: 7px; height: 7px; margin: -4px 0 0 -4px;
+  background: var(--bg-1);
+  border: 1px solid var(--gold-dark);
+  transform: rotate(45deg);
+}
+
+/* ------------------------------------------------------------
+   4. 按钮：木牌 + 鎏金描边；主按钮＝金印
+   ------------------------------------------------------------ */
+button {
+  background: linear-gradient(180deg, var(--btn-a) 0%, var(--btn-b) 100%);
+  border: 1px solid var(--border-gold);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(214, 186, 110, 0.13), 0 1px 2px rgba(0, 0, 0, 0.5);
+  font-family: var(--font-serif);
+  letter-spacing: 0.5px;
+}
+button:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--btn-hover-a) 0%, var(--btn-hover-b) 100%);
+  border-color: var(--gold-dim);
+  color: var(--gold);
+  box-shadow: inset 0 1px 0 rgba(214, 186, 110, 0.22), 0 0 14px rgba(206, 176, 104, 0.16);
+}
+button:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
+button:disabled { opacity: 0.36; }
+
+button.primary {
+  background: linear-gradient(180deg, var(--gold-btn-a) 0%, var(--gold-btn-b) 52%, var(--gold-btn-c) 100%);
+  border-color: var(--gold-dark);
+  color: var(--on-gold);
+  font-weight: 700;
+  text-shadow: 0 1px 0 rgba(255, 246, 218, 0.38);
+  box-shadow: inset 0 1px 0 rgba(255, 250, 226, 0.55), 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+button.primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--gold-btn-hi-a) 0%, var(--gold-btn-hi-b) 52%, var(--gold-btn-hi-c) 100%);
+  color: var(--on-gold-strong);
+  box-shadow: inset 0 1px 0 rgba(255, 250, 226, 0.6), 0 4px 18px rgba(206, 176, 104, 0.3);
+}
+button.ghost {
+  background: transparent; border-color: var(--border); color: var(--text-dim);
+  box-shadow: none;
+}
+button.ghost:hover:not(:disabled) {
+  background: rgba(214, 186, 110, 0.09); border-color: var(--gold-dark); color: var(--gold);
+}
+button.danger {
+  background: linear-gradient(180deg, var(--btn-danger-a) 0%, var(--btn-danger-b) 100%);
+  border-color: rgba(224, 132, 104, 0.5); color: var(--red);
+}
+button.danger:hover:not(:disabled) {
+  border-color: var(--red); color: var(--danger-text);
+  box-shadow: 0 0 14px rgba(224, 132, 104, 0.2);
+}
+button:focus-visible, input:focus-visible, textarea:focus-visible,
+select:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--gold-dim); outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------
+   5. 表单：内凹深底 + 金边聚焦
+   ------------------------------------------------------------ */
+input, textarea, select {
+  background: var(--surface-well);
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+input:hover:not(:focus):not(:disabled), textarea:hover:not(:focus), select:hover:not(:focus) {
+  border-color: var(--gold-dark);
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--gold-dim);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 3px rgba(206, 176, 104, 0.16);
+}
+::placeholder { color: var(--text-faint); }
+select option { background: var(--bg-2); color: var(--text); }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--gold-dim); box-shadow: none; }
+input[type="color"] { padding: 2px; background: var(--bg-2); }
+
+/* ------------------------------------------------------------
+   6. 卡片 / 分区标题
+   ------------------------------------------------------------ */
+.card {
+  background-color: var(--bg-1);
+  background-image: linear-gradient(180deg, var(--surface-card-a) 0%, var(--surface-card-b) 100%);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 1px rgba(206, 176, 104, 0.07), 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.card.selectable:hover {
+  border-color: var(--gold-dark);
+  box-shadow: inset 0 0 0 1px rgba(206, 176, 104, 0.14), 0 6px 22px rgba(0, 0, 0, 0.6);
+}
+.card.selected {
+  border-color: var(--gold-dim);
+  background-image: linear-gradient(180deg, var(--surface-card-hi-a) 0%, var(--surface-card-hi-b) 100%);
+  box-shadow: 0 0 0 1px rgba(214, 186, 110, 0.45), inset 0 0 22px rgba(214, 186, 110, 0.06);
+}
+/* 旧版这里覆盖的是白色高光，深底上要换成金光 */
+.card::before {
+  background: linear-gradient(180deg, rgba(214, 186, 110, 0.09), transparent 32%);
+}
+.card .name { color: var(--gold); }
+.mod-tag { background: var(--bg-2); border-color: var(--border); color: var(--text-dim); }
+.mod-tag.pos { color: var(--green); border-color: rgba(147, 194, 110, 0.45); background: var(--green-bg); }
+.mod-tag.neg { color: var(--red); border-color: rgba(224, 132, 104, 0.45); background: var(--red-bg); }
+
+/* 分区小标题：行楷 + 金竖条 + 左浓右淡的金雾 */
+.section > h3, .section-head-row > h3 {
+  background: linear-gradient(90deg, rgba(214, 186, 110, 0.17), rgba(214, 186, 110, 0) 72%);
+  border-left: 3px solid var(--gold-dim);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--gold);
+  font-family: var(--font-serif);
+  font-weight: 500;
+  letter-spacing: 2.5px;
+}
+.fold-card > .fold-head h4 { color: var(--gold); font-family: var(--font-serif); }
+
+.lbl-note { background: rgba(214, 186, 110, 0.12); color: var(--text-faint); }
+.hint { color: var(--text-faint); }
+.hint code { background: var(--bg-2); color: var(--gold-dim); }
+.kv { border-bottom-color: rgba(206, 176, 104, 0.13); }
+.kv .k { color: var(--text-dim); }
+
+/* 属性条：深槽 + 金填充 */
+.attr-bar .track { background: var(--surface-deep); border-color: var(--border); }
+.attr-bar .fill { background: linear-gradient(90deg, var(--gold-dark), var(--gold)); }
+.attr-bar .val { color: var(--gold-dim); }
+.attr-num-row { border-bottom-color: rgba(206, 176, 104, 0.11); }
+.attr-num-row .nums { color: var(--text); }
+.attr-num-row .bonus.up, .attr-num-row .bonus-total.up { color: var(--green); }
+.attr-num-row .bonus.down, .attr-num-row .bonus-total.down { color: var(--danger); }
+
+.notice {
+  background: rgba(214, 186, 110, 0.09);
+  border-color: var(--border-gold);
+  color: var(--gold-dim);
+}
+.empty-tip { color: var(--text-faint); }
+.tag { background: var(--bg-2); border-color: var(--border); color: var(--text-dim); }
+.tag.manual { color: var(--gold-dim); border-color: var(--gold-dark); background: var(--gold-bg); }
+.tag.turn { color: var(--blue); border-color: rgba(134, 182, 230, 0.42); background: var(--blue-bg); }
+.tag.assistant, .tag.ok { color: var(--green); border-color: rgba(147, 194, 110, 0.42); background: var(--green-bg); }
+.tag.err { color: var(--red); border-color: rgba(224, 132, 104, 0.42); background: var(--red-bg); }
+.snapshot-validation.ok { background: rgba(147, 194, 110, 0.1); border-color: rgba(147, 194, 110, 0.35); }
+.snapshot-validation.err { background: rgba(224, 132, 104, 0.1); border-color: rgba(224, 132, 104, 0.35); }
+.spoiler-blur { background: var(--bg-2); border-color: var(--border); }
+
+/* ------------------------------------------------------------
+   7. 骨架：顶栏 / 左侧导航 / 页面容器
+   ------------------------------------------------------------ */
+.top-bar {
+  background: linear-gradient(180deg, var(--surface-bar-a) 0%, var(--surface-bar-b) 100%);
+  border-bottom: 1px solid var(--border-gold);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
+}
+.top-bar h1 { font-family: var(--font-serif); letter-spacing: 6px; }
+.top-bar .save-name { color: var(--text-dim); }
+.save-state { color: var(--green); }
+.save-state.pending { color: var(--gold-dim); }
+
+.wizard-footer, .gamepage-foot {
+  background: linear-gradient(0deg, var(--surface-bar-b) 0%, var(--surface-bar-a) 100%);
+  border-top-color: var(--border-gold);
+}
+.gamepage-head {
+  background: linear-gradient(180deg, var(--surface-head-a) 0%, var(--surface-head-b) 100%);
+  border-bottom: 1px solid var(--border);
+}
+
+/* 左侧主导航：木牌列 */
+.game-nav {
+  background: linear-gradient(180deg, var(--surface-nav-a) 0%, var(--surface-nav-b) 100%);
+  border-right: 1px solid var(--border-gold);
+}
+.game-nav .nav-item { color: var(--text-dim); border-radius: 3px; }
+.game-nav .nav-item:hover:not(:disabled) {
+  background: rgba(214, 186, 110, 0.1); color: var(--gold);
+}
+.game-nav .nav-item.active {
+  background: linear-gradient(90deg, rgba(214, 186, 110, 0.24), rgba(214, 186, 110, 0.05));
+  color: var(--gold);
+  box-shadow: inset 3px 0 0 var(--gold-dim), inset 0 0 20px rgba(214, 186, 110, 0.06);
+}
+.game-nav .nav-bottom { border-top-color: rgba(206, 176, 104, 0.2); }
+.game-nav .nav-turn { color: var(--gold-dim); }
+/* 导航图标＝一枚墨线小印（单字）。旧版是彩色 emoji，和鎏金深底格格不入。 */
+.game-nav .nav-icon {
+  flex: 0 0 auto;
+  width: 21px; height: 21px; line-height: 19px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--font-serif);
+  font-size: 12.5px; text-align: center;
+  color: var(--gold-dim);
+  border: 1px solid rgba(206, 176, 104, 0.34);
+  border-radius: 4px;
+  background: rgba(214, 186, 110, 0.06);
+  transition: color .15s, border-color .15s, background .15s;
+}
+.game-nav .nav-item:hover:not(:disabled) .nav-icon { border-color: var(--gold-dark); color: var(--gold); }
+.game-nav .nav-item.active .nav-icon {
+  color: var(--on-gold);
+  background: linear-gradient(180deg, var(--gold-btn-a), var(--gold-btn-b));
+  border-color: var(--gold-dark);
+}
+
+.side-panel {
+  background: linear-gradient(180deg, var(--surface-nav-a) 0%, var(--surface-nav-b) 100%);
+  border-right: 1px solid var(--border);
+}
+.side-panel .collapsible > .head { color: var(--gold); }
+.side-panel .collapsible > .head:hover { background: rgba(214, 186, 110, 0.1); color: var(--gold-dim); }
+.side-panel .collapsible > .body { border-top-color: rgba(206, 176, 104, 0.18); }
+
+/* 设置页二级导航 */
+.settings-subnav {
+  background: linear-gradient(180deg, var(--surface-nav-a) 0%, var(--surface-nav-b) 100%);
+  border-right: 1px solid var(--border);
+}
+.settings-subnav-title {
+  font-family: var(--font-serif);
+  color: var(--gold);
+  letter-spacing: 4px;
+  border-bottom-color: rgba(206, 176, 104, 0.25);
+}
+.subnav-name { color: var(--text); }
+.subnav-item:hover:not(:disabled) { background: rgba(214, 186, 110, 0.1); }
+.subnav-item.active {
+  background: linear-gradient(90deg, rgba(214, 186, 110, 0.2), rgba(214, 186, 110, 0.04));
+  box-shadow: inset 3px 0 0 var(--gold-dim);
+}
+.subnav-item.active .subnav-name { color: var(--gold); }
+.settings-main-foot { background: linear-gradient(0deg, var(--surface-bar-b), var(--surface-bar-a)); border-top-color: var(--border); }
+.font-preview { background: var(--scrim); border-color: var(--border-gold); }
+
+/* 步骤条 */
+.step-nav { background: var(--bg-1); border-bottom-color: var(--border); }
+.step-nav button { background: var(--bg-2); border-color: var(--border); color: var(--text-dim); }
+.step-nav button.done { color: var(--gold-dim); border-color: var(--gold-dark); }
+.step-nav button.current { color: var(--gold); border-color: var(--gold-dim); background: var(--gold-bg); }
+
+/* Tab / 分段控件 */
+.tabs { border-bottom-color: var(--border); }
+.tabs button { color: var(--text-dim); }
+.tabs button:hover:not(.active) { color: var(--gold); background: rgba(214, 186, 110, 0.08); }
+.tabs button.active {
+  color: var(--gold); border-bottom-color: var(--gold-dim);
+  background: linear-gradient(180deg, rgba(214, 186, 110, 0.16), rgba(214, 186, 110, 0.03));
+}
+.seg-tabs { border-color: var(--border); }
+.seg-tabs button { background: var(--bg-1); color: var(--text-dim); }
+.seg-tabs button + button { border-left-color: var(--border); }
+.seg-tabs button.active { background: var(--gold-bg); color: var(--gold); }
+
+/* 注入状态条 */
+.inject-status { background: rgba(214, 186, 110, 0.055); border-color: var(--border); }
+.inject-status-row .ok { background: var(--green-bg); color: var(--green); border-color: rgba(147, 194, 110, 0.4); }
+.inject-status-row .fill { background: var(--gold-bg); color: var(--gold-dim); border-color: var(--gold-dark); }
+.inject-status-foot { border-top-color: var(--border); }
+
+/* ------------------------------------------------------------
+   8. 主菜单：水墨气势 —— 行楷大字 + 朱印 + 玉牌菜单
+   ------------------------------------------------------------ */
+.splash {
+  background:
+    radial-gradient(ellipse 62% 38% at 50% 12%, rgba(214, 186, 110, 0.10), transparent 66%),
+    radial-gradient(ellipse 130% 60% at 50% 118%, var(--splash-veil), transparent 70%);
+}
+.splash .main-title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  background: linear-gradient(180deg, #f6e3a8 0%, #d9b862 44%, #a9853a 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: #d9b862;
+  letter-spacing: 16px;
+  text-indent: 16px; /* 抵消 letter-spacing 造成的左偏，让标题真正居中 */
+  /* theme.css 那条是「白描边 + 暖光晕」，配合渐变裁字会变成一圈白毛边，必须关掉 */
+  text-shadow: none;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 22px rgba(206, 176, 104, 0.22));
+}
+.splash .sub-title { color: var(--text-dim); letter-spacing: 6px; font-family: var(--font-serif); }
+.splash .version { color: var(--text-faint); }
+/* 徽记：一条金线 + 居中一枚朱砂闲章（凡）。
+   章面那个字用百分号转义写进 SVG —— data URI 里不许直接放多字节字符。 */
+.splash .title-block { position: relative; }
+.splash .title-block::after {
+  content: '';
+  display: block;
+  width: 248px; height: 26px;
+  margin: var(--s5) auto 0;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Crect x='1.5' y='1.5' width='23' height='23' rx='4' fill='%239c2f26' stroke='%23d4705c' stroke-width='1'/%3E%3Ctext x='13' y='19' font-size='15' fill='%23f7e6c8' text-anchor='middle' font-family='KaiTi,STKaiti,serif'%3E%E5%87%A1%3C/text%3E%3C/svg%3E"),
+    var(--ink-line);
+  background-size: 26px 26px, 100% 1px;
+  background-position: center, 0 50%;
+  background-repeat: no-repeat, no-repeat;
+}
+.splash .menu-list button {
+  background: linear-gradient(180deg, var(--menu-btn-a), var(--menu-btn-b));
+  border-color: var(--border-gold);
+  color: var(--text);
+  font-family: var(--font-serif);
+  letter-spacing: 8px; text-indent: 8px;
+  box-shadow: inset 0 1px 0 rgba(214, 186, 110, 0.12), 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+.splash .menu-list button:hover {
+  border-color: var(--gold-dim); color: var(--gold);
+  box-shadow: inset 0 1px 0 rgba(214, 186, 110, 0.2), 0 0 26px rgba(206, 176, 104, 0.2);
+}
+.splash .menu-list button.primary {
+  background: linear-gradient(180deg, var(--gold-btn-a) 0%, var(--gold-btn-b) 52%, var(--gold-btn-c) 100%);
+  color: var(--on-gold);
+}
+.splash .menu-list button.primary:hover {
+  background: linear-gradient(180deg, var(--gold-btn-hi-a) 0%, var(--gold-btn-hi-b) 52%, var(--gold-btn-hi-c) 100%);
+  color: var(--on-gold-strong);
+}
+.splash .footer { color: var(--text-faint); line-height: 1.9; }
+
+/* ------------------------------------------------------------
+   9. 剧情区：卷轴（深色宣纸底）
+   ------------------------------------------------------------ */
+.story-scroll {
+  background:
+    linear-gradient(180deg, var(--paper-a), var(--paper-b)),
+    var(--bg-1);
+}
+.story-block {
+  padding: 6px 2px var(--s4);
+  border-bottom: none;
+}
+/* 段落之间的金菱分隔（原来是个白色底衬的圆点，深底上要换掉） */
+.story-block::after {
+  content: '❖';
+  left: 50%; bottom: -12px;
+  color: var(--gold-dark); opacity: 0.7;
+  background: transparent; padding: 0 12px;
+  text-shadow: 0 0 8px var(--bg-0), 0 0 4px var(--bg-0);
+}
+.story-block .turn-tag { color: var(--text-faint); }
+.story-text { font-family: var(--font-prose); }
+.mortal-prose, .mortal-dialogue .dlg-text, .mortal-block,
+.mortal-cultivation-card, .mortal-battle-card, .mortal-battle-log { font-family: var(--font-prose); }
+.story-text.narrator { color: var(--text); }
+.story-text.tiandao { color: var(--gold-dim); font-family: var(--font-serif); }
+.story-text.user { color: var(--blue); }
+.story-text.user .msg-edit-btn { background: transparent; border-color: var(--border); color: var(--text-faint); }
+.story-text.user:hover .msg-edit-btn { border-color: var(--gold-dark); color: var(--gold-dim); }
+.story-text.user .msg-edit-btn:hover { background: rgba(214, 186, 110, 0.14); color: var(--gold); }
+.edited-mark { border-color: var(--border); color: var(--text-faint); }
+
+.action-bar {
+  background: linear-gradient(0deg, var(--surface-bar-b) 0%, var(--surface-bar-a) 100%);
+  border-top: 1px solid var(--border-gold);
+}
+.story-edit { background: var(--gold-bg); border-color: var(--border-gold); }
+.story-edit-area { background: var(--surface-well); border-color: var(--border); color: var(--text); }
+.queued-resend { border-color: var(--gold-dark); background: rgba(214, 186, 110, 0.08); color: var(--gold-dim); }
+.word-range-ctl { background: var(--scrim); border-color: var(--border); }
+
+/* ------------------------------------------------------------
+   10. 弹窗 / 抽屉 / Toast
+   ------------------------------------------------------------ */
+.modal-overlay, .drawer-backdrop {
+  background: radial-gradient(120% 120% at 50% 32%, var(--overlay-a), var(--overlay-b));
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+.modal {
+  background-color: var(--bg-1);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M1 15V8a7 7 0 0 1 7-7h7' fill='none' stroke='%23ceb068' stroke-width='1.1' stroke-opacity='.55'/%3E%3Cpath d='M4.5 13V9a4.5 4.5 0 0 1 4.5-4.5h4' fill='none' stroke='%23ceb068' stroke-width='.8' stroke-opacity='.34'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M25 11v7a7 7 0 0 1-7 7h-7' fill='none' stroke='%23ceb068' stroke-width='1.1' stroke-opacity='.55'/%3E%3Cpath d='M21.5 13v4a4.5 4.5 0 0 1-4.5 4.5h-4' fill='none' stroke='%23ceb068' stroke-width='.8' stroke-opacity='.34'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, var(--surface-card-a) 0%, var(--surface-head-b) 100%);
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-position: left top, right bottom, 0 0;
+  background-size: 24px 24px, 24px 24px, auto;
+  border: 1px solid var(--border-gold);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.75), inset 0 0 0 1px rgba(206, 176, 104, 0.12);
+}
+.modal::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(180deg, rgba(214, 186, 110, 0.09), transparent 24%);
+}
+.modal { position: relative; overflow: hidden; }
+.modal .modal-head { border-bottom-color: var(--border-gold); }
+.modal .modal-foot { border-top-color: var(--border); }
+.confirm-body p { color: var(--text-dim); }
+
+.char-drawer, .settings-drawer {
+  background-color: var(--bg-1);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M1 15V8a7 7 0 0 1 7-7h7' fill='none' stroke='%23ceb068' stroke-width='1.1' stroke-opacity='.55'/%3E%3Cpath d='M4.5 13V9a4.5 4.5 0 0 1 4.5-4.5h4' fill='none' stroke='%23ceb068' stroke-width='.8' stroke-opacity='.34'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M25 11v7a7 7 0 0 1-7 7h-7' fill='none' stroke='%23ceb068' stroke-width='1.1' stroke-opacity='.55'/%3E%3Cpath d='M21.5 13v4a4.5 4.5 0 0 1-4.5 4.5h-4' fill='none' stroke='%23ceb068' stroke-width='.8' stroke-opacity='.34'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, var(--surface-bar-a) 0%, var(--surface-bar-b) 100%);
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-position: left top, right bottom, 0 0;
+  background-size: 24px 24px, 24px 24px, auto;
+  border-left: 1px solid var(--border-gold);
+  box-shadow: -18px 0 60px rgba(0, 0, 0, 0.7);
+}
+.char-drawer-head { border-bottom-color: var(--border); }
+.char-list-col { border-right-color: var(--border); }
+.char-group-title { color: var(--gold-dim); }
+.char-item:hover { background: rgba(214, 186, 110, 0.1); }
+.char-item.active { background: rgba(214, 186, 110, 0.18); border-color: var(--gold-dark); }
+.char-item-name { color: var(--text); }
+
+.toast {
+  background: linear-gradient(180deg, var(--battle-chip-a), var(--battle-chip-b));
+  color: var(--text);
+  border: 1px solid var(--border-gold);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.7);
+}
+.toast-err { border-color: rgba(224, 132, 104, 0.5); }
+.toast-warn { border-color: rgba(214, 186, 110, 0.55); }
+.toast-ok .toast-icon { background: #4d7a33; }
+.toast-err .toast-icon { background: #a84a36; }
+.toast-info .toast-icon { background: #8a6a1c; }
+.toast-warn .toast-icon { background: var(--gold-dim); color: var(--on-gold); }
+.spinner { border-color: rgba(214, 186, 110, 0.28); border-top-color: var(--gold-dim); }
+.loading-tip { color: var(--gold-dim); }
+
+/* 回合右键菜单 */
+.turn-ctx-menu {
+  background: linear-gradient(180deg, var(--surface-card-a), var(--surface-card-b));
+  border-color: var(--gold-dark);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.72);
+}
+.turn-ctx-menu button { color: var(--text); background: transparent; border: none; box-shadow: none; }
+.turn-ctx-menu button:hover { background: rgba(214, 186, 110, 0.14); color: var(--gold); }
+.turn-ctx-menu button.danger { color: var(--danger); }
+.turn-ctx-menu button:disabled { color: var(--text-faint); }
+
+/* ------------------------------------------------------------
+   11. 业务面板
+   ------------------------------------------------------------ */
+
+/* --- 世界书 --- */
+.wb-list-col { border-color: var(--border); }
+.wb-batch-bar { background: var(--bg-1); border-bottom-color: var(--border); }
+.wb-item { background: var(--bg-1); border-color: var(--border); }
+.wb-item:hover { border-color: var(--gold-dark); }
+.wb-item.active { background: var(--gold-bg); border-color: var(--gold-dim); }
+.wb-item .wb-name { color: var(--gold); }
+.wb-group > summary.wb-group-head { background: var(--bg-1); border-color: var(--border); color: var(--text-dim); }
+.sp-prompt-body { border-top-color: var(--border); }
+
+/* --- 世界因子 --- */
+.factor-row { background: var(--bg-1); border-color: var(--border); }
+.factor-row:hover { border-color: var(--gold-dark); }
+.factor-row.on { background: var(--gold-bg); border-color: var(--gold-dim); }
+.factor-switch { background: var(--surface-switch); }
+.factor-switch::after { background: var(--surface-knob); }
+.factor-row.on .factor-switch { background: var(--gold-dim); }
+.factor-row.on .factor-switch::after { background: var(--on-gold); }
+.factor-name { color: var(--gold); }
+.factor-row:not(.on) .factor-name { color: var(--text); }
+
+/* --- 因子池 --- */
+.fx-side-card { background-color: var(--bg-1); border-color: var(--border); }
+.fx-block-head h3 { color: var(--gold); }
+.fx-bar { background: var(--bg-1); border-color: var(--border); }
+.fx-divider { background: var(--border); }
+.fx-remove { color: var(--text-faint); }
+.fx-remove:hover { color: var(--danger); border-color: var(--border); }
+.fx-set { background: var(--bg-1); border-color: var(--border); }
+.fx-set:hover { border-color: var(--gold-dark); }
+.fx-set.on { background: var(--gold-bg); border-color: var(--gold-dim); }
+.fx-set-name { color: var(--gold); }
+
+/* --- 人生快照 --- */
+.snap-timeline { border-left-color: var(--border-gold); }
+.snap-item { background: var(--bg-1); border-color: var(--border); }
+.snap-item:hover { border-color: var(--gold-dark); }
+.snap-item.active { background: var(--gold-bg); border-color: var(--gold-dim); }
+.snap-dot { background: var(--bg-0); border-color: var(--gold-dark); }
+.snap-item.active .snap-dot { background: var(--gold-dim); border-color: var(--gold-dim); }
+.snap-item-label { color: var(--gold); }
+.snap-summary-line { background: var(--bg-2); color: var(--text-dim); }
+.snap-edit-input { background: var(--surface-well); border-color: var(--gold-dark); color: var(--text); }
+.fold-card { background: var(--scrim); border-color: var(--border); }
+.fold-card > .fold-head { background: rgba(214, 186, 110, 0.07); }
+.fold-card > .fold-head:hover { background: rgba(214, 186, 110, 0.13); }
+.fold-card > .fold-body { border-top-color: var(--border); }
+.snapshot-col-btn { background: var(--bg-2); border-color: var(--border); color: var(--text-dim); }
+.snapshot-col-btn:hover:not(.active) { color: var(--gold); border-color: var(--gold-dark); background: rgba(214, 186, 110, 0.1); }
+.snapshot-col-btn.active { color: var(--gold); border-color: var(--gold-dim); background: rgba(214, 186, 110, 0.16); }
+.snapshot-col-badge { background: var(--gold-bg); border-color: var(--gold-dark); color: var(--gold-dim); }
+.snapshot-view .card h4 { border-bottom-color: var(--border-gold); color: var(--gold); }
+.rel-row { background: var(--bg-2); border-color: var(--border); }
+.rel-name { color: var(--gold-dim); }
+.rel-fav.pos { color: var(--gold-dim); }
+.rel-fav.neg { color: var(--red); }
+
+/* --- 储物袋 / 装备 --- */
+.inv-edit-item { border-color: var(--gold-dark); background: rgba(214, 186, 110, 0.03); }
+.inv-add-form { border-color: var(--border-gold); }
+.inv-line { color: var(--text); }
+button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
+.inv-line-name { color: var(--text); }
+.inv-line-qty { color: var(--gold-dim); }
+.equipped-badge { color: var(--gold); border-color: var(--gold-dim); }
+.inv-line-mods { color: var(--gold); }
+.equip-group { background: var(--scrim); border-color: var(--border); }
+.equip-group-title { color: var(--gold); border-bottom-color: var(--border-gold); }
+.equip-slot-row, .equip-slot-cell { border-bottom-color: rgba(206, 176, 104, 0.13); }
+.equip-slot-cell .equip-slot-val.equipped { color: var(--gold-dim); }
+.equip-slot-cell .equip-slot-val.equipped:hover { background: rgba(214, 186, 110, 0.12); color: var(--gold); }
+.equip-slot-cell .equip-slot-val.empty { color: var(--text-faint); border-color: var(--border); }
+.equip-slot-cell .equip-slot-val.empty:hover { border-color: var(--gold-dim); color: var(--gold-dim); }
+.equip-slot-grade { color: var(--gold); border-color: var(--border-gold); }
+.equip-pick-item { background: var(--bg-2); border-color: var(--border); }
+.equip-pick-item:hover { background: rgba(214, 186, 110, 0.1); border-color: var(--gold-dim); }
+.equip-pick-name { color: var(--gold-dim); }
+.equip-pick-mods { color: var(--gold); }
+.trait-desc-line { color: var(--text-dim); }
+.trait-mods-line { color: var(--gold); border-top-color: rgba(206, 176, 104, 0.2); }
+
+/* --- 数值表 --- */
+.nt-list-col { scrollbar-color: var(--thumb-a) transparent; }
+.nt-table-btn { background: var(--bg-1); border-color: var(--border); color: var(--text); }
+.nt-table-btn:hover { border-color: var(--gold-dark); }
+.nt-table-btn.active { background: var(--gold-bg); border-color: var(--gold-dim); color: var(--gold); }
+.nt-grid-wrap { background: var(--bg-1); border-color: var(--border); }
+.nt-grid th, .nt-grid td { border-bottom-color: var(--border); border-right-color: var(--border); }
+.nt-grid thead th { background: var(--surface-thead); color: var(--gold-dim); }
+.nt-grid th.nt-key, .nt-grid td.nt-key { background: var(--surface-key); color: var(--text); }
+.nt-grid input { background: var(--surface-well); border-color: var(--border); color: var(--text); }
+.nt-grid input:focus { background: rgba(214, 186, 110, 0.1); border-color: var(--gold-dim); }
+.nt-grid input.bad { border-color: var(--danger); background: var(--red-bg); color: var(--danger); }
+.nt-json { background: var(--surface-well); border-color: var(--border); color: var(--text); }
+.nt-report { background: var(--bg-1); border-color: var(--border-gold); }
+.nt-report .nt-grid th, .nt-report .nt-grid td, .nt-report td.nt-key, .nt-report th.nt-key {
+  background: var(--surface-deep);
+}
+
+/* --- 天道助手 --- */
+.assistant-item { background: var(--bg-1); border-color: var(--border); }
+.assistant-q { color: var(--text); }
+.assistant-a { background: var(--bg-2); color: var(--text-dim); }
+.op-row:hover { background: rgba(214, 186, 110, 0.1); }
+.op-row code { color: var(--gold-dim); }
+.assistant-applied { border-top-color: var(--border); }
+
+/* --- 世界地图 --- */
+.map-svg-wrap {
+  background-color: var(--map-bg);
+  background-image: var(--gg-corner-tl), var(--gg-corner-br);
+  background-repeat: no-repeat, no-repeat;
+  background-position: left top, right bottom;
+  background-size: 24px 24px, 24px 24px;
+  border-color: var(--border-gold);
+}
+.map-region-name { fill: rgba(206, 176, 104, 0.16); }
+.map-poi-name { fill: var(--text); }
+.map-poi-name.cur { fill: var(--gold); }
+.map-side .card { background: var(--bg-1); }
+.map-poi-row { color: var(--text); }
+.map-poi-row:hover:not(:disabled) { background: rgba(214, 186, 110, 0.12); }
+.map-poi-row.active { background: rgba(214, 186, 110, 0.2); color: var(--gold); }
+
+/* --- 正文预设 / 接口库 / 注入顺序 / 着色词表 --- */
+.preset-item { background: var(--bg-1); border-color: var(--border); }
+.preset-item:hover { border-color: var(--gold-dark); }
+.preset-item.active { background: var(--gold-bg); border-color: var(--gold-dim); }
+.preset-item-name { color: var(--gold); }
+.preset-item.drop-target, .sp-prompt-row.drop-target { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+.sp-accordion { background: var(--surface-bar-a); border-color: var(--border-gold); }
+.sp-accordion-head {
+  background: linear-gradient(180deg, var(--surface-thead), var(--surface-head-b));
+  color: var(--gold);
+}
+.sp-accordion-head:hover { background: linear-gradient(180deg, var(--surface-card-hi-a), var(--surface-card-hi-b)); }
+.sp-accordion-actions { background: linear-gradient(180deg, var(--surface-head-b), var(--surface-bar-a)); border-top-color: var(--border); }
+.sp-prompt-row { background: var(--surface-nav-b); border-color: var(--border); }
+.sp-prompt-row:hover { border-color: var(--gold-dark); }
+.sp-prompt-row.open { background: rgba(214, 186, 110, 0.07); border-color: var(--gold-dim); }
+.sp-prompt-head:hover { background: rgba(214, 186, 110, 0.08); }
+.sp-prompt-name { color: var(--gold); }
+.sp-prompt-content, .sp-raw-view { background: var(--bg-0); color: var(--text-dim); border-color: var(--border); }
+.sp-drag-hint { background: rgba(214, 186, 110, 0.16); color: var(--gold); border-color: var(--gold-dim); box-shadow: none; }
+.preset-content-input { background: var(--surface-well); }
+.token-btn { background: var(--bg-2); border-color: var(--border); }
+.token-btn:hover:not(:disabled) { background: var(--gold-bg); border-color: var(--gold-dim); }
+.token-code { color: var(--gold-dim); }
+.prompt-preview { background: var(--surface-code); color: var(--text-dim); border: 1px solid var(--border); }
+.rule-card-head .rule-name { color: var(--gold); }
+
+.ep-empty { background: var(--bg-1); border-color: var(--border); }
+.ep-card { background: var(--bg-1); border-color: var(--border); }
+.ep-card.open { border-color: var(--gold-dark); }
+.ep-head:hover { background: var(--bg-2); }
+.ep-name { color: var(--text); }
+.ep-tag-snap { color: var(--blue); }
+.ep-tag-warn { color: var(--red); }
+.ep-body { background: var(--bg-2); border-top-color: var(--border); }
+
+.io-col { background: var(--bg-1); border-color: var(--border); }
+.io-col-stable { border-color: var(--gold-dark); }
+.io-col-name { color: var(--gold); }
+.io-item { background: var(--bg-2); border-color: var(--border); }
+.io-item-name { color: var(--text); }
+
+.cp-preview { background: var(--bg-1); border-color: var(--border); }
+.cp-row .cp-swatch { border-color: var(--border); }
+.cp-head { color: var(--text-faint); }
+
+/* 性格维度 */
+.dim-row .dim-labels .l { color: var(--gold-dim); }
+.dim-scale button { background: var(--bg-2); border-color: var(--border); color: var(--text-faint); }
+.dim-scale button.on { background: var(--gold-bg); border-color: var(--gold-dim); color: var(--gold); }
+.pers-bar::after { background: var(--border-gold); }
+.pers-cell { background: var(--surface-cell); }
+.pers-cell.on { background: var(--gold-dark); }
+.pers-bar:not(.ro):hover .pers-cell { background: var(--surface-cell-hi); }
+.pers-bar:not(.ro):hover .pers-cell.on { background: var(--gold-dim); }
+.pers-pole.on { color: var(--gold); }
+.pers-summary .pers-chip { background: var(--gold-bg); border-color: var(--border-gold); color: var(--gold); }
+
+/* 演化页「已选」打勾：深底色号改深，别在金色块上留一个白勾 */
+.style-row.on .style-check { color: var(--on-gold); }
+.style-ins-btn { color: var(--text-faint); }
+.style-ins-btn:hover:not(:disabled) { color: var(--gold-dim); }
+.style-row.on .style-name { color: var(--gold); }
+.style-row.on .style-state { color: var(--gold-dim); }
+
+/* 存档列表 */
+.save-item .meta { color: var(--text-faint); }
+.test-result.ok { color: var(--green); }
+.test-result.err { color: var(--danger); }
+
+/* ------------------------------------------------------------
+   12. 正文语义块（Mortal 标记）：深色宣纸上重新配色
+   ------------------------------------------------------------ */
+.mortal-ui-sys {
+  background: linear-gradient(180deg, rgba(214, 186, 110, 0.09), rgba(214, 186, 110, 0.02));
+  border-color: var(--border-gold);
+  border-left-color: var(--gold);
+  color: var(--text-dim);
+}
+.mortal-scene { background: rgba(146, 178, 120, 0.08); border-color: rgba(146, 178, 120, 0.32); }
+.mortal-jade { background: rgba(110, 168, 158, 0.08); border-color: rgba(110, 168, 158, 0.38); }
+.mortal-bamboo { background: rgba(206, 176, 104, 0.08); border-color: rgba(206, 176, 104, 0.38); }
+.mortal-aside { background: rgba(120, 160, 210, 0.06); border-color: rgba(120, 160, 210, 0.34); color: var(--text-dim); }
+.mortal-thought { color: var(--text-dim); background: rgba(255, 255, 255, 0.02); border-left-color: rgba(206, 176, 104, 0.35); }
+.mortal-focus { background: rgba(210, 120, 90, 0.07); border-color: rgba(210, 120, 90, 0.36); }
+.mortal-break { color: var(--text-faint); }
+.mortal-break::before, .mortal-break::after {
+  background: linear-gradient(90deg, transparent, rgba(206, 176, 104, 0.4), transparent);
+}
+.mortal-inline { color: var(--gold-dim); border-bottom-color: var(--gold-dim); }
+
+/* 对话气泡：卷轴纸（深色宣纸）＋ 金边 */
+.mortal-dialogue {
+  background: linear-gradient(180deg, var(--bubble-a), var(--bubble-b));
+  border-color: rgba(206, 176, 104, 0.34);
+  box-shadow: inset 0 1px 0 rgba(214, 186, 110, 0.1), 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+.mortal-dialogue .dlg-speaker { color: var(--gold); }
+.mortal-dialogue .dlg-tone { color: var(--text-faint); border-color: var(--border); }
+.mortal-dialogue .dlg-text { color: var(--text); }
+.mortal-dialogue.tone-calm { border-left-color: #6fa894; }
+.mortal-dialogue.tone-warm { border-left-color: #c08a4e; }
+.mortal-dialogue.tone-wary { border-left-color: #a89652; }
+.mortal-dialogue.tone-austere { border-left-color: #6a82ac; }
+.mortal-dialogue.tone-mist { border-left-color: #8a8aa8; }
+.mortal-dialogue.tone-omen { border-left-color: #8f6aa8; }
+.mortal-dialogue.tone-spirit { border-left-color: #5a98ac; }
+.mortal-dialogue.tone-injury { border-left-color: #b06450; }
+.mortal-dialogue.tone-observe { border-left-color: #9a9a80; }
+.mortal-dialogue.tone-player {
+  background: linear-gradient(180deg, var(--bubble-player-a), var(--bubble-player-b));
+  border-left-color: var(--gold);
+}
+
+.mortal-option-btn {
+  background: linear-gradient(180deg, var(--option-btn-a), var(--option-btn-b));
+  border-color: rgba(206, 176, 104, 0.38);
+  color: var(--text);
+  /* theme.css 给全局 button 定了 white-space: nowrap（那是给顶栏工具栏定的）。
+     选项是一句「要读完才知道选什么」的完整话，继承了 nowrap 就会横着穿出按钮框、
+     被容器裁掉半句 —— 玩家只能看到前半截。必须允许折行。 */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.mortal-option-btn:hover {
+  border-color: var(--gold); background: rgba(214, 186, 110, 0.13);
+  box-shadow: 0 0 18px rgba(206, 176, 104, 0.14);
+}
+.mortal-option-btn .opt-name { color: var(--gold); }
+.mortal-checkpoint { color: var(--text-faint); border-color: rgba(206, 176, 104, 0.34); background: var(--scrim); }
+.mortal-cultivation-card {
+  border-color: var(--gold-dark);
+  background: linear-gradient(180deg, var(--gold-tint), var(--paper-veil));
+}
+.mortal-cultivation-card .cv-title { color: var(--gold); }
+.mortal-cultivation-card .cv-row { color: var(--text-dim); }
+.mortal-cultivation-card .cv-row b { color: var(--text); }
+
+.mortal-battle-card {
+  border-color: rgba(210, 110, 80, 0.42);
+  background: linear-gradient(180deg, rgba(150, 70, 45, 0.1), var(--paper-veil-strong));
+}
+.mortal-battle-card .bc-head { border-bottom-color: rgba(210, 110, 80, 0.24); }
+.mortal-battle-card .bc-atk { color: var(--gold); }
+.mortal-battle-card .bc-side { background: var(--scrim); border-color: var(--border); }
+.mortal-battle-card .bc-name { color: var(--text); }
+.mortal-battle-card .bc-realm { background: var(--gold-bg); color: var(--gold-dim); }
+.mortal-battle-card .bc-pool.hp { color: var(--red); }
+.mortal-battle-card .bc-pool.mp { color: var(--blue); }
+.mortal-battle-card .bc-item { background: var(--gold-bg); color: var(--gold-dim); }
+.mortal-battle-card .bc-res { border-top-color: rgba(210, 110, 80, 0.28); }
+.mortal-battle-card .bc-win { color: var(--gold); }
+
+.mortal-battle-log {
+  border-color: rgba(210, 110, 80, 0.36);
+  border-left-color: rgba(210, 110, 80, 0.62);
+  background: rgba(150, 70, 45, 0.07);
+}
+.mortal-battle-card .mortal-battle-log { border-left-color: rgba(210, 110, 80, 0.32); background: rgba(150, 70, 45, 0.06); }
+.mortal-battle-log .bl-round + .bl-round { border-top-color: rgba(210, 110, 80, 0.2); }
+.mortal-battle-log .bl-badge { background: rgba(214, 186, 110, 0.2); color: var(--gold); }
+.mortal-battle-log .bl-head { color: var(--text); }
+.mortal-battle-log .bl-skill { color: var(--gold-dim); }
+.mortal-battle-log .bl-calc { color: var(--text-dim); }
+.mortal-battle-log .bl-dmg { color: var(--red); }
+.mortal-battle-log .bl-plain { color: var(--text-dim); }
+
+.battle-report { border-top-color: var(--border); }
+.battle-report > summary { color: var(--gold-dim); }
+.battle-report > pre { background: var(--bg-2); border-color: var(--border); color: var(--text-dim); }
+
+/* ------------------------------------------------------------
+   13. 战斗界面：把 polish.css 的「玄色鎏金」对齐到新令牌
+   （作用域内的变量重设保留，避免动到三维画布附近的白底）
+   ------------------------------------------------------------ */
+/* ⚠ 只让它在**非亮色**主题下生效。这一段是早期为了"战斗页自成一套深色"
+   而写的局部令牌重设，它排在文件后面，特异性又和 [data-theme] 一样 ⇒
+   如果不加这道限定，切到亮色后它会再把战斗页拉回深色。 */
+:root:not([data-theme="light"]) .battle-shell {
+  --bg-0: #100d08;
+  --bg-1: #1a150e;
+  --bg-2: #221b12;
+  --bg-3: #2e2517;
+  --text: #eee5cd;
+  --text-dim: #bcaf90;
+  --text-faint: #8f8369;
+  --border: #3b3223;
+  --border-gold: rgba(206, 176, 104, 0.42);
+  --gold: #e8ca7c;
+  --gold-dim: #cfb063;
+  --gold-dark: #8b7030;
+  --green: #93c26e; --green-bg: rgba(147, 194, 110, 0.13);
+  --red: #e08468;   --red-bg: rgba(224, 132, 104, 0.13);
+  --blue: #86b6e6;  --blue-bg: rgba(134, 182, 230, 0.13);
+  --danger: #e08468;
+
+  background-color: var(--bg-1);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M1 15V8a7 7 0 0 1 7-7h7' fill='none' stroke='%23ceb068' stroke-width='1.1' stroke-opacity='.55'/%3E%3Cpath d='M4.5 13V9a4.5 4.5 0 0 1 4.5-4.5h4' fill='none' stroke='%23ceb068' stroke-width='.8' stroke-opacity='.34'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M25 11v7a7 7 0 0 1-7 7h-7' fill='none' stroke='%23ceb068' stroke-width='1.1' stroke-opacity='.55'/%3E%3Cpath d='M21.5 13v4a4.5 4.5 0 0 1-4.5 4.5h-4' fill='none' stroke='%23ceb068' stroke-width='.8' stroke-opacity='.34'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, var(--shell-grad-a) 0%, var(--shell-grad-b) 100%);
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  background-position: left top, right bottom, 0 0;
+  background-size: 24px 24px, 24px 24px, auto;
+  border: 1px solid var(--border-gold);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(206, 176, 104, 0.1);
+}
+.battle-top { background: linear-gradient(180deg, var(--battle-top-a), var(--battle-top-b)); border-bottom-color: var(--border-gold); }
+.battle-side { background: linear-gradient(180deg, var(--battle-side-a), var(--battle-side-b)); border-left-color: var(--border-gold); }
+.battle-map-wrap { background: var(--surface-field); }
+.battle-scene { box-shadow: inset 0 0 44px rgba(0, 0, 0, 0.5), 0 12px 34px rgba(0, 0, 0, 0.5); }
+.battle-log { background: var(--surface-field); }
+.battle-log::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--thumb-a), var(--thumb-b)); border-color: var(--surface-field); }
+.battle-shell button {
+  background: linear-gradient(180deg, var(--btn-a), var(--btn-b));
+  border-color: var(--border-gold); color: var(--text);
+}
+.battle-shell button:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--btn-hover-a), var(--btn-hover-b));
+  border-color: var(--gold-dim); color: var(--gold);
+}
+.battle-shell button.primary, .battle-shell button.bp-end {
+  background: linear-gradient(180deg, var(--gold-btn-a), var(--gold-btn-b));
+  border-color: var(--gold-dark); color: var(--on-gold);
+}
+.battle-shell button.primary:hover:not(:disabled), .battle-shell button.bp-end:hover {
+  background: linear-gradient(180deg, var(--gold-btn-hi-a), var(--gold-btn-hi-b)); color: var(--on-gold-strong);
+}
+.tl-item.side-left { border-left-color: var(--blue); }
+.tl-item.side-right { border-left-color: var(--red); }
+.bpu-bar.hp i { background: linear-gradient(90deg, #8f2f22, #d4614a); }
+.bpu-bar.mp i { background: linear-gradient(90deg, #2c5e8f, #6aa4dd); }
+.bp-end { font-family: var(--font-serif); letter-spacing: 2px; }
+.battle-chip {
+  background: linear-gradient(180deg, var(--battle-chip-a), var(--battle-chip-b));
+  border-color: var(--border-gold); color: var(--gold);
+}
+/* 地形小标签（图例里那几个「林/地/水」）：它的底色是**动态**的 3D 地表色
+   （色块本身就是这个 span 的背景，由 JS 内联给），有深有浅。
+   CSS 没法「按底色自动选黑字还是白字」，所以：固定白字 + 一圈暗描边，深浅底上都立得住。
+   ⚠ 别改成 var(--text)：亮色下它是深墨，压在中褐的地块色上反而掉到 3.0:1（实测）。 */
+.bm-terrain {
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8), 0 0 3px rgba(0, 0, 0, 0.55);
+}
+/* 三维场景里的名字牌（.bs3-name）比上面那个还难：地形色的明暗横跨一大段 ——
+   灵脉 #e6cf8a、水洼 #6f9fbc 很亮，毒沼 #5f7a48 偏暗，**单一字色吃不下**。
+   实测最糟的几组：「当前出手」那支金压在灵脉上只有 1.49:1（金压金，等于看不见），
+   深红（敌方）压毒沼 2.29，深墨（我方）压水洼 2.50。
+   办法：给名字那一行铺一层 74% 的浅底片，把底统一压进浅色区间，深字就都立得住了
+   （重新算下来最低 4.6:1）。原本那圈白描边保留 —— 它在浅底片上没有副作用，
+   在还没铺满的边缘处仍然有用。
+   ⚠ 「当前出手」的字色在这儿**钉死成深金**、不再取 --gold：底片是浅的，
+     而深色主题那支亮金（#e8ca7c）压上去只剩 1.2:1。
+   血条（.bs3-bar）不动：它自己已经有半透明深底，是色块不是字。 */
+.bs3-tag .bs3-name {
+  background: rgba(250, 244, 230, 0.74);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.bs3-tag.acting .bs3-name { color: #6f5310; }
+
+/* ------------------------------------------------------------
+   14. 细节：错误页、响应式微调、减少动效
+   ------------------------------------------------------------ */
+/* 三维起不来时的兜底格盘 */
+.bs3-fb-grid { border-color: var(--border-gold); background: var(--border-gold); }
+.bs3-loading { color: var(--text-dim); }
+.bs3-fb-note { color: var(--text-dim); }
+
+/* 让「app-shell」两侧那两条金竖线更含蓄一点（深底上原来偏亮） */
+.app-shell::before, .app-shell::after {
+  background: linear-gradient(to bottom, transparent 0%, var(--border-gold) 10%, var(--border-gold) 90%, transparent 100%);
+  opacity: 0.5;
+}
+
+/* 主菜单在窄屏时 letter-spacing 过大会挤出边界 */
+@media (max-width: 560px) {
+  .splash .main-title { letter-spacing: 8px; text-indent: 8px; font-size: 34px; }
+  .splash .menu-list button { letter-spacing: 5px; text-indent: 5px; }
+}
+
+/* ------------------------------------------------------------
+   15. 亮色主题的「另配装饰」
+   ------------------------------------------------------------
+   令牌能换掉绝大多数颜色，但有三类东西令牌管不了，必须另写一份：
+     ① 内联 SVG（远山、四角云纹）—— 颜色写死在 data URI 里，变量进不去
+     ② 渐变裁字（主菜单大标题）—— 亮金压在纸上会发白，得换更深的一道金
+     ③ 硬编码的深阴影 —— 白底上用黑阴影会脏，要换成暖褐
+   这一节必须排在文件最后：上面 §3 还会重新定义一次云纹角，
+   靠"后来的同特异性覆盖前面的"才盖得住。
+   ------------------------------------------------------------ */
+
+/* ① 底：宣纸 + 淡墨远山 */
+[data-theme="light"] body {
+  background-color: var(--bg-0);
+  background-image:
+    radial-gradient(ellipse 74% 42% at 50% -6%, rgba(154, 122, 40, 0.10), transparent 62%),
+    radial-gradient(ellipse 46% 38% at 8% 16%, rgba(90, 120, 110, 0.05), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 94% 74%, rgba(90, 120, 110, 0.04), transparent 72%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 560'%3E%3Ccircle cx='1150' cy='138' r='72' fill='%23c2a45c' fill-opacity='.10'/%3E%3Ccircle cx='1150' cy='138' r='72' fill='none' stroke='%23b09040' stroke-opacity='.22'/%3E%3Cg fill='none' stroke='%23b09040' stroke-opacity='.18' stroke-width='1.3'%3E%3Cpath d='M170 156c16-24 48-24 62-4 13-18 44-15 48 6'/%3E%3Cpath d='M690 92c12-18 36-18 46-3 11-13 32-11 36 5'/%3E%3Cpath d='M1010 202c14-20 42-20 54-3 12-15 38-13 42 5'/%3E%3C/g%3E%3Cpath fill='%23e6dabc' stroke='%23b09040' stroke-opacity='.20' d='M0 356C70 330 110 268 178 286 236 302 268 236 336 256 396 274 430 196 508 226 560 246 592 190 668 214 730 234 768 172 842 202 906 228 946 186 1024 212 1090 234 1128 196 1200 218 1268 238 1320 210 1382 228 1410 236 1428 240 1440 244L1440 560 0 560Z'/%3E%3Cpath fill='%23ddcfae' stroke='%23b09040' stroke-opacity='.26' d='M0 424C86 400 132 348 208 368 288 388 336 322 424 346 512 370 566 312 660 336 748 358 802 304 896 328 986 350 1042 306 1136 330 1216 350 1272 320 1352 342 1396 354 1420 356 1440 360L1440 560 0 560Z'/%3E%3Cg fill='%23b09040' fill-opacity='.20'%3E%3Cpath transform='translate(286,344) scale(1.4)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3Cpath transform='translate(314,352) scale(1.1)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3Cpath transform='translate(1004,338) scale(1.25)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3C/g%3E%3Cpath fill='%23d3c3a0' stroke='%23b09040' stroke-opacity='.32' d='M0 494C96 474 156 434 252 454 344 472 404 426 502 448 600 470 664 428 764 448 862 468 926 430 1024 450 1114 468 1178 438 1268 456 1338 470 1398 462 1440 466L1440 560 0 560Z'/%3E%3C/svg%3E"),
+    repeating-linear-gradient(135deg, transparent 0 26px, rgba(154, 122, 40, 0.022) 26px 27px),
+    repeating-linear-gradient(45deg, transparent 0 82px, rgba(154, 122, 40, 0.016) 82px 83px),
+    radial-gradient(ellipse at 50% 112%, #ece0c4 0%, #f2e9d4 64%);
+  background-attachment: fixed;
+  background-size: auto, auto, auto, 100% auto, auto, auto, auto;
+  background-position: 0 0, 0 0, 0 0, center bottom, 0 0, 0 0, 0 0;
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat, repeat, no-repeat;
+}
+
+/* ② 四角云纹：纸上要用深金褐才看得见 */
+[data-theme="light"] {
+  --gg-corner-tl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M1 15V8a7 7 0 0 1 7-7h7' fill='none' stroke='%23a8862f' stroke-width='1.1' stroke-opacity='.62'/%3E%3Cpath d='M4.5 13V9a4.5 4.5 0 0 1 4.5-4.5h4' fill='none' stroke='%23a8862f' stroke-width='.8' stroke-opacity='.40'/%3E%3C/svg%3E");
+  --gg-corner-br: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M25 11v7a7 7 0 0 1-7 7h-7' fill='none' stroke='%23a8862f' stroke-width='1.1' stroke-opacity='.62'/%3E%3Cpath d='M21.5 13v4a4.5 4.5 0 0 1-4.5 4.5h-4' fill='none' stroke='%23a8862f' stroke-width='.8' stroke-opacity='.40'/%3E%3C/svg%3E");
+}
+
+/* ③ 主菜单大标题（渐变裁字）与选中色 */
+[data-theme="light"] .splash .main-title {
+  background: linear-gradient(180deg, #c69a3a 0%, #96701c 44%, #6d4f0c 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(255, 253, 246, 0.75));
+}
+[data-theme="light"] ::selection { background: rgba(154, 122, 40, 0.26); color: #2b2415; }
+
+/* ④ 战斗壳：阴影换暖褐、云纹角换亮色那套，
+      并且**把壳内的文字令牌整套重设一遍**（这一条是 2026-09-21 补的漏）。
+
+      为什么必须重设：polish.css 的 `.battle-shell` 里有一份「壳内调色板」，它是为把
+      战斗页做成「深底浅字」而写的（`--text: #f1e8d2` 近白、`--gold: #e8cf8a` 亮金）。
+      这份调色板**只在 `:root:not([data-theme="light"])` 那条里才被豁免** —— 于是切到
+      宣纸之后，壳的背景换成了米白，字却还是近白的：两者亮度几乎一样，就是「字和背景重叠」。
+      真机实测（临时按 BattleView 的真实结构挂一块壳，逐字量对比度）：
+      壳内 57 个文字节点里 **48 处 <3.0，最差 1.01**。
+      下面这一份就是它的亮色对偶：同一个骨架，换成「纸上的墨」。
+      ⚠ 三支金都比全站那套（#8a6a1c / #9c7c28 / #c2a45c）再深一档 ——
+        因为壳里用它们的全是 10~14px 的小字，而全站那套有一半是拿来做装饰边的。 */
+[data-theme="light"] .battle-shell {
+  --bg-0: #f7f0de;
+  --bg-1: #fbf6ea;
+  --bg-2: #f3ead6;
+  --bg-3: #e6dabd;
+  --text: #2b2415;
+  --text-dim: #57492c;
+  --text-faint: #6f5f3c;
+  --border: #d5c7a2;
+  --border-gold: rgba(138, 106, 28, 0.42);
+  --gold: #6f5310;
+  --gold-dim: #63490c;
+  --gold-dark: #503a06;
+  --gold-bg: rgba(154, 122, 40, 0.16);
+  --green: #3f6b2e;  --green-bg: rgba(80, 130, 70, 0.15);
+  --red: #a8342a;    --red-bg: rgba(170, 60, 45, 0.13);
+  --blue: #2a5c8f;   --blue-bg: rgba(60, 110, 175, 0.13);
+  --danger: #a8342a;
+
+  box-shadow: 0 18px 48px rgba(96, 78, 38, 0.28), inset 0 0 0 1px rgba(154, 122, 40, 0.12);
+  background-image:
+    var(--gg-corner-tl), var(--gg-corner-br),
+    linear-gradient(180deg, var(--shell-grad-a) 0%, var(--shell-grad-b) 100%);
+}
+[data-theme="light"] .battle-scene {
+  box-shadow: inset 0 0 44px rgba(96, 78, 38, 0.14), 0 10px 26px rgba(96, 78, 38, 0.18);
+}
+/* 亮色下的「玻璃」：polish.css 里那批 `rgba(255,255,255,.0x)` 是给深底**提亮**用的，
+   铺到纸上等于「没有背景」，层级立不起来。换成暖墨薄玻璃。
+   （`color` 不用在这写：上面令牌一换，`.bp-tabs button` 之类引的 --text-dim/--gold 自己就跟着走了。） */
+[data-theme="light"] .tl-item,
+[data-theme="light"] .bp-tabs button,
+[data-theme="light"] .bp-unit,
+[data-theme="light"] .bp-act,
+[data-theme="light"] .bp-flag.done,
+[data-theme="light"] .bmv,
+[data-theme="light"] .bl-toggle {
+  background: rgba(120, 100, 55, 0.055);
+}
+[data-theme="light"] .bp-act:disabled { background: rgba(120, 100, 55, 0.03); }
+/* 壳顶部那道鎏金高光线：纸上是深金，用亮金会成一道白线 */
+[data-theme="light"] .battle-shell::before {
+  background: linear-gradient(90deg, transparent, rgba(138, 106, 28, 0.45), transparent);
+}
+/* 壳外的遮罩：亮色下不能用那层近黑的（会把整页宣纸压成墨）。
+   换成暖褐薄纱 —— 注意力仍收进战斗，但纸还是纸。 */
+[data-theme="light"] .battle-overlay {
+  background: radial-gradient(120% 120% at 50% 30%, rgba(122, 100, 54, 0.22), rgba(84, 68, 38, 0.38));
+}
+/* 行动条里「已退出战斗」的人：theme.css 给这两处写死了浅赭色（#b8807a / #cf8f86），
+   那是配深底的。纸上换成同一支赭色的深版（底色本身还带 opacity:.8，所以再深一档）。 */
+[data-theme="light"] .tl-item.gone .tl-idx { color: #8a5a52; }
+[data-theme="light"] .tl-item.gone .tl-realm { color: #96463c; }
+/* 收起后的「战斗进行中」悬浮条不在壳内，取的是全站那支金（#8a6a1c，纸上 4.2:1 偏弱）
+   ⇒ 跟壳内用同一支深金。 */
+[data-theme="light"] .battle-chip { color: #6f5310; }
+
+/* ------------------------------------------------------------
+   16. 主题开关（主菜单的「纸色」栏 + 游戏顶栏的那一枚）
+   ------------------------------------------------------------ */
+.splash .theme-switch {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: 20px;
+}
+.theme-switch-label { font-size: 11px; letter-spacing: 2px; color: var(--text-faint); margin-right: 2px; }
+.theme-opt {
+  min-height: 26px; padding: 3px 14px; font-size: 12px; letter-spacing: 2px;
+  background: var(--btn-a); border: 1px solid var(--border); color: var(--text-dim); border-radius: 3px;
+}
+.theme-opt:hover:not(:disabled) { border-color: var(--gold-dark); color: var(--gold); }
+.theme-opt.on {
+  background: var(--gold-grad); border-color: var(--gold-dark); color: var(--on-gold);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.3);
+}
+
+.theme-toggle { display: inline-flex; align-items: center; gap: 6px; }
+/* 半白半墨的小圆点：一眼看出当前是哪套纸色 */
+.theme-mark {
+  width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto;
+  border: 1px solid var(--gold-dark);
+  background: linear-gradient(90deg, #f6efdd 0 50%, #241c0e 50% 100%);
+}
+
+/* ------------------------------------------------------------
+   17. 角色名册：一块木板，上面贴着纸
+   ------------------------------------------------------------
+   做法三层，缺一层都不像：
+     ① 木板 —— 面板自己的底，深胡桃竖纹（纹理沿板的长边走）＋四边包边
+     ② 纸   —— head / body 各自铺上宣纸色（面板 padding 14px 留出四边木框）
+     ③ 字   —— 纸上的所有内容（见下面「局部重设」）
+
+   ③ 为什么非做不可：纸是**浅色**的，而深色主题下全站的文字令牌是**浅色**的
+   ⇒ 不换就是"浅纸压浅字"，名册一个字都读不出来（这正是上一轮亮色版踩过的坑，
+   只是这次方向反过来）。所以把整套语义令牌在 .char-drawer 内部换一遍：
+   组件一行都不用改，它们照旧取名字，只是取到的值变成了「墨」。
+
+   两套主题在这里**共用同一套墨色**（纸都是浅的），只有纸本身的深浅不同 ——
+   玄墨下是一张夜里的旧宣纸（压暗一档，不然夜里晃眼），宣纸下是白天的新纸。
+   ------------------------------------------------------------ */
+
+/* ---- 木板与纸的专属令牌（两套主题各一次取值） ---- */
+:root {
+  /* 木纹：三段底色 + 两档纹理线，叠出"刨过的板子" */
+  --plank-a: #4a3a22; --plank-b: #3a2c18; --plank-c: #241a0d;
+  --plank-grain: rgba(0, 0, 0, 0.34);
+  --plank-grain-hi: rgba(255, 240, 200, 0.05);
+  --plank-edge: rgba(206, 176, 104, 0.42);
+  --plank-hi: rgba(255, 235, 180, 0.16);
+  --plank-shadow: -22px 0 64px rgba(0, 0, 0, 0.72);
+
+  /* 纸面：一档本体 + 三档"纸上的块"（浅块 / 更深块 / 凹槽） */
+  --sheet: #cfc1a0;
+  --sheet-sub: #c5b795;
+  --sheet-sub-2: #bbac88;
+  --sheet-sink: #b0a07c;
+  --sheet-stain: rgba(120, 96, 44, 0.14);      /* 陈化斑点 */
+  --sheet-stain-2: rgba(96, 74, 30, 0.22);     /* 纸边压深 */
+  --sheet-line: rgba(90, 70, 34, 0.30);
+  --sheet-line-2: rgba(120, 92, 34, 0.46);
+  --sheet-lift: 0 10px 28px rgba(0, 0, 0, 0.42), 0 1px 0 rgba(255, 250, 232, 0.35) inset;
+
+  /* 纸上的字 —— 纸总是浅的，所以这两套主题共用同一份墨 */
+  --sheet-ink: #241d10;
+  --sheet-ink-dim: #4e452c;
+  --sheet-ink-faint: #786a48;
+  --sheet-gold: #7a5710;
+  --sheet-gold-dim: #8d6b1c;
+  --sheet-gold-dark: #a8894a;
+}
+[data-theme="light"] {
+  --plank-a: #c69c63; --plank-b: #b0854f; --plank-c: #956d3c;
+  --plank-grain: rgba(84, 58, 22, 0.26);
+  --plank-grain-hi: rgba(255, 250, 236, 0.34);
+  --plank-edge: rgba(110, 84, 36, 0.55);
+  --plank-hi: rgba(255, 250, 236, 0.5);
+  --plank-shadow: -20px 0 56px rgba(70, 50, 20, 0.5);
+
+  --sheet: #f6edd8;
+  --sheet-sub: #efe4c9;
+  --sheet-sub-2: #e7dabb;
+  --sheet-sink: #ddcfab;
+  --sheet-stain: rgba(150, 122, 62, 0.10);
+  --sheet-stain-2: rgba(140, 112, 56, 0.16);
+  --sheet-line: rgba(120, 96, 40, 0.24);
+  --sheet-line-2: rgba(120, 92, 34, 0.42);
+  --sheet-lift: 0 12px 32px rgba(70, 50, 20, 0.34), 0 1px 0 rgba(255, 253, 246, 0.7) inset;
+}
+
+/* ---- 局部重设：把名册整页换成「纸上的墨」 ---- */
+.char-drawer {
+  --bg-0: var(--sheet);
+  --bg-1: var(--sheet);
+  --bg-2: var(--sheet-sub);
+  --bg-3: var(--sheet-sub-2);
+
+  --surface-bar-a: var(--sheet-sub);      --surface-bar-b: var(--sheet-sub-2);
+  --surface-nav-a: var(--sheet-sub);      --surface-nav-b: var(--sheet-sub-2);
+  --surface-head-a: var(--sheet-sub);     --surface-head-b: var(--sheet-sub-2);
+  --surface-card-a: var(--sheet-sub);     --surface-card-b: var(--sheet-sub-2);
+  --surface-card-hi-a: var(--sheet-sub-2); --surface-card-hi-b: var(--sheet-sink);
+  --surface-well: var(--sheet-sub);
+  --surface-deep: var(--sheet-sink);
+  --surface-code: var(--sheet-sub);
+  --surface-field: var(--sheet-sink);
+  --surface-thead: var(--sheet-sub-2);
+  --surface-key: var(--sheet-sub);
+  --surface-switch: var(--sheet-sink);
+  --surface-knob: var(--sheet);
+  --surface-cell: var(--sheet-sub);
+  --surface-cell-hi: var(--sheet-sub-2);
+
+  --btn-a: var(--sheet-sub);       --btn-b: var(--sheet-sub-2);
+  --btn-hover-a: var(--sheet-sub-2); --btn-hover-b: var(--sheet-sink);
+  --btn-danger-a: rgba(156, 58, 34, 0.14);
+  --btn-danger-b: rgba(156, 58, 34, 0.20);
+
+  --text: var(--sheet-ink);
+  --text-dim: var(--sheet-ink-dim);
+  --text-faint: var(--sheet-ink-faint);
+  --gold: var(--sheet-gold);
+  --gold-dim: var(--sheet-gold-dim);
+  --gold-dark: var(--sheet-gold-dark);
+  --gold-bg: rgba(122, 87, 16, 0.10);
+  --gold-tint: rgba(122, 87, 16, 0.09);
+  --gold-tint-2: rgba(122, 87, 16, 0.15);
+  --gold-line: rgba(122, 87, 16, 0.38);
+  --ring-gold: 0 0 0 1px rgba(122, 87, 16, 0.35);
+
+  --border: var(--sheet-line);
+  --border-gold: var(--sheet-line-2);
+  --hair: rgba(120, 92, 34, 0.16);
+
+  --green: #3f6b26;  --green-bg: rgba(63, 107, 38, 0.12);
+  --red: #9c3a22;    --red-bg: rgba(156, 58, 34, 0.12);
+  --blue: #2b5f8c;   --blue-bg: rgba(43, 95, 140, 0.12);
+  --danger: #9c3a22;
+  --danger-text: #8e3520;
+
+  --thumb-a: #b8a67e; --thumb-b: #a1906a;
+  --thumb-a-hi: #a89570; --thumb-b-hi: #97845e;
+
+  --scrim: rgba(90, 70, 34, 0.12);
+  --scrim-strong: rgba(90, 70, 34, 0.18);
+
+  --shadow-1: 0 1px 2px rgba(90, 70, 34, 0.16);
+  --shadow-2: 0 4px 14px rgba(90, 70, 34, 0.16);
+  --shadow-3: 0 16px 44px rgba(80, 62, 26, 0.24);
+  --shadow-soft: 0 2px 6px rgba(90, 70, 34, 0.12), 0 10px 26px rgba(90, 70, 34, 0.14);
+  --shadow-lift: 0 6px 16px rgba(90, 70, 34, 0.16), 0 18px 40px rgba(90, 70, 34, 0.18);
+}
+
+/* ---- 纸上那几条「写死的浅金」要改掉 ----
+   它们原本是给深底配的亮金分隔线 / 悬停底色，落到浅纸上等于没有。
+   作用域限定在 .char-drawer 内，不动全局。 */
+.char-drawer .kv { border-bottom-color: rgba(120, 92, 34, 0.18); }
+.char-drawer .attr-num-row { border-bottom-color: rgba(120, 92, 34, 0.15); }
+.char-drawer .char-item:hover { background: rgba(122, 87, 16, 0.10); }
+.char-drawer .char-item.active { background: rgba(122, 87, 16, 0.18); }
+.char-drawer .lbl-note { background: rgba(122, 87, 16, 0.12); }
+/* 物品详情弹窗落在纸上，它的四角云纹是写死深金的内联 SVG —— 纸上看不见，换成浅金 */
+.char-drawer .modal { border-color: var(--sheet-line-2); }
+.theme-toggle.on-light .theme-mark { background: linear-gradient(90deg, #fdf8ec 0 50%, var(--gold-dim) 50% 100%); }
+
+/* 全站唯一使用行楷的地方：主菜单大标题。字号够大（40px+），行楷才立得住。 */
+.splash .main-title { font-family: var(--font-title); }
+
+/* ============================================================
+   §18 字体选择器（设置页 · 显示与字体）
+   三个槽彼此独立：界面 / 标题 / 正文。这里只管**选择器长什么样**；
+   真正生效靠 fontPrefs.js 往 <html> 写内联的 --font-ui / --font-serif / --font-prose。
+   颜色一律走令牌，两套纸色都成立。
+   ============================================================ */
+
+/* 把「排版（字号行距）」与「字体」两件事在视觉上分开 */
+.font-sep { border: none; border-top: 1px dashed var(--border); margin: 18px 0 12px; }
+.font-sec-title { margin: 0 0 6px; }
+
+.font-slot { margin-bottom: 16px; }
+.font-slot-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.font-slot-hint { margin: 0; flex: 1 1 240px; font-size: 12px; }
+
+/* 候选按钮：**每个按钮用它自己那套字体渲染** —— 挑字体本质是看字形，
+   隔着一排看不见模样的名字去挑，等于闭着眼选。
+   带 stack 的候选由行内 style 给字体；「默认」那个不给 ⇒ 落回下面的兜底（跟随界面字体）。 */
+.font-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 7px 0 6px; }
+.font-chip {
+  display: inline-flex; align-items: baseline; gap: 4px;
+  padding: 5px 11px; border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--btn-a), var(--btn-b));
+  color: var(--text); font-size: 13px; line-height: 1.45;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: border-color 0.16s var(--ease-out, ease), transform 0.16s var(--ease-out, ease);
+}
+.font-chip:hover { border-color: var(--gold-dark); transform: translateY(-1px); }
+.font-chip:active { transform: translateY(0); }
+.font-chip.on {
+  border-color: var(--gold); color: var(--on-gold); font-weight: 600;
+  background: linear-gradient(180deg, var(--gold-btn-a), var(--gold-btn-b));
+}
+.font-chip-note { font-size: 11px; opacity: 0.62; font-weight: 400; }
+
+.font-custom-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.font-custom { flex: 1 1 auto; min-width: 0; font-size: 12.5px; }
+
+/* 三行示例各用**对应槽**的字体排（变量已是当前生效值，改完立刻反映在这儿） */
+.font-preview--ui { font-family: var(--font-ui); font-size: 14px; line-height: 1.8; }
+.font-preview--title { font-family: var(--font-serif); font-size: 22px; line-height: 1.6; letter-spacing: 2px; }
+/* 正文示例的字号/行距由 JSX 行内给（跟着上面两个滑杆走） */
+.font-preview--prose { font-family: var(--font-prose); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

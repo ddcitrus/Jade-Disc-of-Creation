@@ -1,0 +1,13 @@
+{
+  "name": "jade-disc-of-creation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "造化玉碟 · 修仙文字世界（本地独立版）",
+  "scripts": {
+    "install:all": "cd server && npm install && cd ../client && npm install",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "build": "cd client && npm run build",
+    "start": "cd server && npm start"
+  }
+}

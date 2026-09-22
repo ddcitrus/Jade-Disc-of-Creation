@@ -1,0 +1,309 @@
+/* ============================================================
+   造化玉碟 · 界面精修层（polish.css）
+   2026-09-20 新增。只做「视觉表现」增强，不改任何 DOM 结构与游戏规则：
+     · 浅色书卷界面（菜单 / 叙事 / 设置 …）：鎏金质感、层次、微交互精致化；
+     · 战斗界面：升级为「玄色鎏金玻璃」HUD —— 深底衬亮地图，信息更聚焦、更有游戏感。
+   本文件在 theme.css 之后引入，故同优先级属性以本文件为准。
+   设计参考：《文明 VI》《XCOM 2》《火焰纹章：风花雪月》的战斗 HUD
+            ＋ 《逆水寒》《鬼谷八荒》的国风鎏金视觉。
+   ============================================================ */
+
+:root {
+  /* 更细腻的鎏金与阴影层次（在原令牌基础上追加/覆盖） */
+  --gold-grad: linear-gradient(180deg, #e7cd86 0%, #d3b25e 46%, #b8933c 100%);
+  --gold-line: rgba(212, 182, 104, 0.55);
+  --shadow-soft: 0 2px 6px rgba(96, 80, 38, 0.10), 0 10px 28px rgba(96, 80, 38, 0.14);
+  --shadow-lift: 0 6px 16px rgba(96, 80, 38, 0.16), 0 18px 44px rgba(80, 64, 24, 0.22);
+  --ring-gold: 0 0 0 1px rgba(212, 182, 104, 0.35);
+  --ease-pop: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ============ 标题：鎏金质感 ============ */
+h1, h2, h3 { text-wrap: balance; }
+.splash .main-title,
+.splash h1 {
+  background: linear-gradient(180deg, #e9d292 0%, #cda84f 52%, #a07f2e 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: #b8933c;
+  text-shadow: 0 1px 0 rgba(255, 252, 240, 0.6);
+  filter: drop-shadow(0 2px 3px rgba(120, 92, 30, 0.28));
+}
+
+/* ============ 按钮：光泽与回弹 ============ */
+button {
+  position: relative;
+  transition: border-color .16s var(--ease-pop), background .16s var(--ease-pop),
+              box-shadow .16s var(--ease-pop), color .16s var(--ease-pop), transform .10s var(--ease-pop);
+}
+button:hover:not(:disabled) { transform: translateY(-1px); }
+button:active:not(:disabled) { transform: translateY(1px) scale(0.99); }
+/* 主按钮：鎏金 + 顶部高光 + 内描边，更像一枚金印 */
+button.primary {
+  background: linear-gradient(180deg, #e0c277 0%, #c6a14a 48%, #a8842f 100%);
+  border-color: #8a6c24;
+  box-shadow: inset 0 1px 0 rgba(255, 246, 218, 0.55), 0 3px 10px rgba(120, 92, 30, 0.30);
+}
+button.primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #e8cd86 0%, #d0ab55 48%, #b18d34 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 246, 218, 0.6), 0 6px 16px rgba(120, 92, 30, 0.36);
+}
+
+/* ============ 卡片 / 面板：柔和层次 + 顶部鎏金高光 + 悬停浮起 ============ */
+.card {
+  box-shadow: var(--shadow-soft);
+  transition: border-color .18s var(--ease-pop), box-shadow .18s var(--ease-pop), transform .18s var(--ease-pop);
+}
+.card.selectable:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+.card.selected { box-shadow: var(--ring-gold), var(--shadow-soft); }
+.card::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 250, 232, 0.5), transparent 30%);
+}
+.card { position: relative; overflow: hidden; }
+
+/* 分区小标题：鎏金竖条更挺括 */
+.section > h3, .section-head-row > h3 {
+  background: linear-gradient(90deg, rgba(201, 169, 91, 0.28), rgba(201, 169, 91, 0.02));
+  border-left-color: #b8933c;
+}
+
+/* ============ 表单：聚焦更柔亮 ============ */
+input:focus, textarea:focus, select:focus {
+  border-color: var(--gold-dim);
+  box-shadow: 0 0 0 3px rgba(197, 169, 94, 0.20), 0 2px 8px rgba(120, 92, 30, 0.12);
+}
+
+/* 浅色区滚动条更精致 */
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #d8c89a, #bda86c);
+  border: 2px solid var(--bg-2); border-radius: 6px;
+}
+
+/* ============ 主菜单：更有气势 ============ */
+.splash .main-title { letter-spacing: 8px; }
+.splash .menu-list button {
+  letter-spacing: 5px;
+  background: linear-gradient(180deg, rgba(255, 253, 247, 0.92), rgba(246, 238, 218, 0.92));
+  box-shadow: var(--shadow-soft);
+}
+.splash .menu-list button:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lift);
+  border-color: var(--gold-dim);
+}
+
+/* ============ 叙事故事页：卷轴纸感 ============ */
+.story-scroll {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(255, 253, 246, 0.92), rgba(252, 247, 233, 0.72)),
+    var(--bg-1);
+}
+.story-block {
+  position: relative;
+  padding: 4px 2px var(--s4);
+}
+/* 段落之间的鎏金小分隔，替代生硬的实线 */
+.story-block::after {
+  content: '❖';
+  position: absolute; left: 50%; bottom: -11px; transform: translateX(-50%);
+  font-size: 11px; color: var(--gold-dark); opacity: 0.55;
+  background: var(--bg-1); padding: 0 10px; line-height: 1;
+}
+.story-block:last-child::after { content: none; }
+.story-text { text-wrap: pretty; }
+
+/* 游戏内左侧导航：选中项加鎏金竖条 */
+.game-nav .nav-item.active {
+  box-shadow: inset 3px 0 0 var(--gold-dim);
+  background: rgba(197, 169, 94, 0.18);
+}
+
+/* 弹窗：更柔的入场与金边 */
+.modal { border-color: var(--gold-line); }
+.modal::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 250, 232, 0.5), transparent 26%);
+}
+.modal { position: relative; }
+
+/* Toast 轻浮起 */
+.toast, [class*='toast'] { box-shadow: var(--shadow-lift); }
+
+/* ============================================================
+   战斗界面 · 玄色鎏金玻璃 HUD
+   做法：在 .battle-shell 作用域内「反转」调色板（深底浅字、鎏金更亮），
+   壳内所有引用这些变量的元素自动适配深色；再对个别硬编码颜色做覆盖。
+   明亮的 3D 地图保持不变，深色框恰好把亮地图「裱」起来。
+   ============================================================ */
+.battle-overlay {
+  background: radial-gradient(120% 120% at 50% 30%, rgba(30, 24, 12, 0.55), rgba(12, 9, 4, 0.78));
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+
+.battle-shell {
+  /* —— 战斗作用域调色板（玄色 + 鎏金）—— */
+  --bg-0: #141009;
+  --bg-1: #1d180e;
+  --bg-2: #261f12;
+  --bg-3: #342b18;
+  --text: #f1e8d2;
+  --text-dim: #c4b795;
+  --text-faint: #948868;
+  --border: #3c331e;
+  --border-gold: rgba(212, 182, 104, 0.42);
+  --gold: #e8cf8a;
+  --gold-dim: #d8bd6e;
+  --gold-dark: #b3934a;
+  --gold-bg: rgba(214, 184, 106, 0.13);
+  --green: #93c87f;  --green-bg: rgba(120, 180, 110, 0.14);
+  --red: #e28a78;    --red-bg: rgba(220, 120, 100, 0.14);
+  --blue: #86b8e8;   --blue-bg: rgba(120, 170, 225, 0.14);
+  --danger: #e28a78;
+
+  background: linear-gradient(180deg, rgba(31, 25, 13, 0.92), rgba(20, 16, 8, 0.94));
+  border: 1px solid var(--border-gold);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(232, 207, 138, 0.18);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+/* 壳顶部一道鎏金高光线 */
+.battle-shell::before {
+  content: ''; position: absolute; top: 0; left: 12px; right: 12px; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(232, 207, 138, 0.55), transparent);
+  pointer-events: none; z-index: 2;
+}
+
+/* 顶栏：深色玻璃 */
+.battle-top {
+  background: linear-gradient(180deg, rgba(40, 32, 17, 0.9), rgba(30, 24, 12, 0.9));
+  border-bottom: 1px solid var(--border-gold);
+}
+.bt-result.r-胜, .bt-result.r-败, .bt-result.r-draw { backdrop-filter: blur(2px); }
+
+/* 地图区：深色画框裱亮地图（画布本身不透明、保持明亮） */
+.battle-map-wrap { background: var(--bg-0); }
+.battle-scene {
+  border: 1px solid var(--border-gold);
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.35), 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+/* 右侧栏 / 时间线 / 战报：统一深色玻璃 */
+.battle-side {
+  background: linear-gradient(180deg, rgba(31, 25, 13, 0.86), rgba(22, 18, 9, 0.9));
+  border-left: 1px solid var(--border-gold);
+}
+.battle-timeline { border-bottom: 1px solid var(--border); }
+.tl-item { background: rgba(255, 255, 255, 0.035); }
+.tl-item.now {
+  background: var(--gold-bg);
+  box-shadow: inset 0 0 0 1px var(--border-gold);
+}
+
+/* 战斗壳内的按钮：深色玻璃 + 鎏金描边（覆盖全局浅色硬编码渐变） */
+.battle-shell button {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border-color: var(--border-gold);
+  color: var(--text);
+  box-shadow: none;
+}
+.battle-shell button:hover:not(:disabled) {
+  background: var(--gold-bg);
+  border-color: var(--gold-dim);
+  color: var(--gold);
+  box-shadow: 0 0 0 1px rgba(214, 184, 106, 0.25);
+}
+/* 主操作（结束回合等）在深色底上更亮的鎏金 */
+.battle-shell button.primary,
+.battle-shell button.bp-end {
+  background: linear-gradient(180deg, #e0c277, #c29c46);
+  border-color: #8a6c24; color: #241c08; font-weight: 700;
+  text-shadow: 0 1px 0 rgba(255, 246, 218, 0.4);
+}
+.battle-shell button.primary:hover:not(:disabled),
+.battle-shell button.bp-end:hover {
+  background: linear-gradient(180deg, #e8cd86, #ccaa52);
+  color: #1c1507;
+}
+/* 危险 / 取消类 */
+.battle-shell button.danger,
+.battle-shell .bp-act.cancel { color: var(--red); border-color: rgba(226, 138, 120, 0.5); }
+
+/* Tab 与列表项 */
+.bp-tabs button { background: rgba(255, 255, 255, 0.035); color: var(--text-dim); }
+.bp-tabs button.on { background: var(--gold-bg); color: var(--gold); border-color: var(--border-gold); }
+.bp-unit { background: rgba(255, 255, 255, 0.035); border-color: var(--border); }
+.bp-unit.acting { background: var(--gold-bg); border-color: var(--border-gold); }
+.bpu-bar { background: var(--bg-3); border-color: var(--border); }
+.bp-act {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border);
+}
+.bp-act:hover:not(:disabled) { background: var(--gold-bg); border-color: var(--border-gold); }
+.bp-act:disabled { background: rgba(255, 255, 255, 0.02); }
+.bp-act-kind { border-color: var(--border); color: var(--text-faint); }
+.bp-flag { border-color: var(--border); }
+.bp-flag.ready { color: var(--gold); border-color: var(--border-gold); background: var(--gold-bg); }
+.bp-flag.done { color: var(--text-faint); background: rgba(255, 255, 255, 0.03); }
+
+/* 战报深色 + 精致滚动条 */
+.battle-log { background: var(--bg-0); }
+.battle-log::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #6b5c33, #4a3f22);
+  border: 2px solid var(--bg-0);
+}
+.bl-toggle { background: rgba(255, 255, 255, 0.04); border-color: var(--border); }
+.bl-toggle.on { background: var(--gold-bg); border-color: var(--border-gold); color: var(--gold); }
+.bl-audit { border-left-color: var(--border-gold); }
+
+/* 视角控件（图例里） */
+.bmv { background: rgba(255, 255, 255, 0.05); border-color: var(--border); color: var(--text-dim); }
+.bmv:hover:not(:disabled) { border-color: var(--border-gold); color: var(--gold); }
+.bm-terrain { border-color: var(--border); color: var(--text); background: rgba(255, 255, 255, 0.03); }
+
+/* 战斗壳内表单（保险：深色适配） */
+.battle-shell input, .battle-shell textarea, .battle-shell select {
+  background: var(--bg-2); border-color: var(--border); color: var(--text);
+}
+
+/* 战斗结束后的「只读查看」提示条（2026-09-20 配合面板保留新增） */
+.bp-readonly {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 11px; border-radius: var(--radius-sm);
+  font-size: var(--fs-xs); line-height: 1.45;
+  color: var(--gold);
+  background: var(--gold-bg);
+  border: 1px solid var(--border-gold);
+}
+.bp-readonly::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: var(--gold-dim); box-shadow: 0 0 7px var(--gold-dim);
+}
+
+/* 收起后的悬浮战斗条：深色鎏金 */
+.battle-chip {
+  background: linear-gradient(180deg, rgba(40, 32, 17, 0.95), rgba(26, 21, 11, 0.96));
+  border-color: var(--border-gold); color: var(--gold);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
+}
+
+/* ============ 入场 / 微交互动效 ============ */
+.battle-shell { animation: battle-shell-in .26s var(--ease-pop); }
+@keyframes battle-shell-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.bp-act, .tl-item { animation: row-in .22s var(--ease-pop) both; }
+@keyframes row-in {
+  from { opacity: 0; transform: translateX(6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* 用户若偏好减弱动态，则关闭装饰性动画 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

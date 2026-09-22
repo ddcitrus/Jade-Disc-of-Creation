@@ -1,0 +1,258 @@
+/* ============================================================
+   造化玉碟 · 界面层 · 元素与动效（guigu-fx.css）
+   ------------------------------------------------------------
+   职责：只做「看得见的元素」和「动起来的样子」，一个颜色都不写死
+        （全部取自 guigu.css 的令牌）⇒ 明暗两套主题自动都成立。
+   载入顺序：theme → polish → guigu → guigu-fx（最后，可覆盖前面的动画）
+
+   动效三条自定规矩（廉价感就是从这三处漏出来的）：
+     1. 时长短：.16 ~ .52s。超过 .6s 的入场，用户第二次打开就会烦。
+     2. 缓动只有一个方向：「先快后慢」。不做弹跳、不做回弹、不做循环。
+     3. 只动 opacity / transform / clip-path（走合成层）；
+        不动 width / height / top / left —— 那会触发重排，滚动时掉帧。
+   ============================================================ */
+
+:root {
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-soft: cubic-bezier(.33, 1, .68, 1);
+
+  /* 画面四周的洇墨（暗角）——深色下是「更浓的墨」，亮色下是「纸边洇开的茶色」。
+     ⚠ 这一层是**盖在所有内容之上**的（z-index 900），所以它同时也在压暗靠近边缘的文字。
+     0.45 那种浓度会把顶栏文字一起吃掉 ⇒ 收到 0.28/0.18：仍然看得出「边上墨重」，
+     但读字的对比度基本不受影响。**先别调大**，除非确认过顶栏与底栏的字还清楚。 */
+  --ink-vig: rgba(0, 0, 0, 0.28);
+  --ink-vig-2: rgba(0, 0, 0, 0.18);
+}
+/* 木轴那套 --rod-* 已随「上下卷轴」一起删掉（名册改成木板 + 纸了），
+   木板与纸的令牌在 guigu.css §17 —— 那一份要出现在两套主题里，所以放在配色层。 */
+
+[data-theme="light"] {
+  --ink-vig: rgba(122, 100, 54, 0.12);
+  --ink-vig-2: rgba(122, 100, 54, 0.09);
+}
+
+/* ------------------------------------------------------------
+   1. 页面边缘：洇墨暗角
+   ------------------------------------------------------------
+   四角 + 四边各铺一层 radial / linear 渐变，叠出"墨在宣纸上向外洇开"的边。
+   浮在最上层但 pointer-events:none ⇒ 只压视觉，不挡任何点击。
+   z-index 取 900：低于弹窗（1000+）高于普通内容 ⇒ 弹窗打开时暗角自动让位。
+   ------------------------------------------------------------ */
+#root::before {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 900;
+  background:
+    radial-gradient(ellipse 42% 34% at 0% 0%,    var(--ink-vig), transparent 72%),
+    radial-gradient(ellipse 42% 34% at 100% 0%,  var(--ink-vig), transparent 72%),
+    radial-gradient(ellipse 42% 34% at 0% 100%,  var(--ink-vig), transparent 72%),
+    radial-gradient(ellipse 42% 34% at 100% 100%,var(--ink-vig), transparent 72%),
+    linear-gradient(180deg, var(--ink-vig-2) 0, transparent 72px),
+    linear-gradient(0deg,   var(--ink-vig-2) 0, transparent 72px),
+    linear-gradient(90deg,  var(--ink-vig-2) 0, transparent 72px),
+    linear-gradient(270deg, var(--ink-vig-2) 0, transparent 72px);
+}
+
+/* ------------------------------------------------------------
+   2. 木板与纸：角色名册（从右向左拉开一块板子）
+   ------------------------------------------------------------
+   用户原话：「从右向左拉开一块木板，上面的纸上是角色名册」。
+   所以这里是两层，各有各的节奏 ——
+     木板（.char-drawer）先被拉出来 → 停一拍 → 纸（.gg-board）铺上去。
+   **这个"停一拍"就是质感本身**：两层一起动，看起来只是一块色块滑进来。
+
+   ⚠ 展开方向用横向 clip-path（左边界从右往左退），不用 scaleX ——
+   scaleX 会把纸上的字一起挤扁，和之前那个 scaleY 是同一个错误。
+   ⚠ 木板那条**不写 fill-mode**：留着 clip-path 会变成裁剪框，
+   把面板里的浮层（提示气泡、下拉、物品详情弹窗）切掉。
+   .gg-board 是纯装饰层、没有子元素，写 both 只是为了让 delay 那 0.10s
+   里它保持"整张裁掉"，否则会先完整闪一下再重播动画。
+   ------------------------------------------------------------ */
+/* 木板本体：深胡桃竖纹（纹理沿板的长边走）。
+   ⚠ 这里**必须用 `background` 简写**，不能只写 background-image ——
+   guigu.css 给 .char-drawer 单独设过 `background-size: 24px 24px` 和
+   `background-position: left top, right bottom, 0 0`（那是给两组云纹 SVG 准备的）。
+   只换 image 的话这些会**留在元素上**，作用到新渐变上 ⇒ 木纹被切成 24×24 的方块
+   平铺，整块板子变成马赛克。简写会把所有 background-* 子属性一起重置。
+
+   `padding: 14px` 就是纸边到板边的那圈木框：走 padding 而不是套一层「纸」元素，
+   是为了让**纸成为 head / body 自己的背景**（见下一条）。 */
+.char-drawer {
+  padding: 14px;
+  background:
+    repeating-linear-gradient(90deg, var(--plank-grain) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(90deg, var(--plank-grain-hi) 0 1px, transparent 1px 11px),
+    repeating-linear-gradient(90deg, var(--plank-grain) 0 2px, transparent 2px 37px),
+    linear-gradient(180deg, var(--plank-a) 0%, var(--plank-b) 46%, var(--plank-c) 100%) var(--plank-b);
+  border-left: 1px solid var(--plank-edge);
+  box-shadow: var(--plank-shadow), inset 1px 0 0 var(--plank-hi);
+}
+
+/* 纸：head 与 body 各自铺纸色，两片拼起来就是贴在这块板上的一整张。
+   ⚠ 为什么不用一个单独的「纸」元素把它们包起来 —— 那样纸就成了内容的**兄弟**
+   而不是祖先：任何「往上找底色」的判断（浏览器调试器、巡检脚本、以后可能再加的
+   对比度检查）都会一路穿透到木板，把「墨字压纸」误读成「墨字压深木」。
+   实测第一次跑就报了三条假红（比 1.21 / 1.37 / 2.11，底色写的是木板的 rgb(54,43,26)）。
+   铺在 head / body 自己身上，背景链就是对的：字 → 纸 → 板。
+   用**纯色**不弄斑点，是因为两片拼合处有渐变就会出现接缝。 */
+.char-drawer > .char-drawer-head,
+.char-drawer > .char-drawer-body { background-color: var(--sheet); }
+
+/* 木框（距板边 5px 的一圈包边 + 高光）与四角鎏金包角。
+   木板的"厚度"就是靠这一圈立起来的。 */
+.char-drawer::before {
+  content: ''; position: absolute; inset: 5px; pointer-events: none;
+  border: 1px solid var(--plank-edge);
+  box-shadow: inset 0 0 0 1px var(--plank-hi);
+  background-image:
+    linear-gradient(var(--gold-grad)), linear-gradient(var(--gold-grad)),
+    linear-gradient(var(--gold-grad)), linear-gradient(var(--gold-grad));
+  background-repeat: no-repeat;
+  background-size: 18px 18px;
+  background-position: left top, right top, left bottom, right bottom;
+  opacity: 0.72;
+}
+/* 纸的边：一道细线 + 四周压深（"纸角微微卷起的暗"）。
+   pointer-events:none 不能省 —— 它铺满整张纸，会挡住底下所有点击。 */
+.char-drawer::after {
+  content: ''; position: absolute; inset: 14px; pointer-events: none;
+  border: 1px solid var(--sheet-line);
+  box-shadow: inset 0 0 30px var(--sheet-stain-2);
+}
+
+/* 木板：位移 + 横向揭开，两个方向都是「从右往左」 */
+@keyframes gg-plank-out {
+  from { clip-path: inset(0 0 0 90%); transform: translateX(40px); }
+  to   { clip-path: inset(0 0 0 0);   transform: none; }
+}
+/* 卷轴式展开（设置抽屉 / 弹窗仍用）：从中间向上下"揭开"。
+   同样用 clip-path 而不是 scaleY —— scaleY 会把文字一起压扁。 */
+@keyframes gg-unroll {
+  from { clip-path: inset(48% 0 48% 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+@keyframes gg-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* 应用点：名册 / 设置抽屉 / 弹窗
+   ⚠ 这里**故意不给 .char-drawer / .settings-drawer 写 position**：
+   它们在 theme.css 里是 position:fixed（贴在右侧的抽屉）。
+   早先这里写了一句 `position: relative`，把它们拽回了文档流 —— 那个 bug
+   让抽屉不再贴右边，而且因为它是后载入的，theme.css 里的 fixed 被静默盖掉。 */
+.modal { position: relative; }
+.char-drawer { animation: gg-plank-out 0.46s var(--ease-out); }
+.settings-drawer { animation: gg-unroll 0.5s var(--ease-out); }
+.modal { animation: gg-unroll 0.44s var(--ease-out); }
+.modal-overlay, .drawer-backdrop { animation: gg-fade 0.22s var(--ease-soft); }
+
+/* ------------------------------------------------------------
+   3. 入场：页面切换 / 列表错峰
+   ------------------------------------------------------------ */
+@keyframes gg-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+/* 页面切换：轻微上浮 + 淡入（不用 blur，整页 blur 在低端机上会掉帧） */
+.game-content > * { animation: gg-rise 0.32s var(--ease-out) both; }
+
+/* 列表错峰：同一组的第 n 项各晚一点点，读起来像"依次登场"而不是"整块闪出" */
+.char-list-col .char-item,
+.snap-timeline .snap-item,
+.map-side .map-poi-row,
+.nt-list-col .nt-table-btn { animation: gg-rise 0.28s var(--ease-out) both; }
+.char-list-col .char-item:nth-child(2), .snap-timeline .snap-item:nth-child(2),
+.map-side .map-poi-row:nth-child(2), .nt-list-col .nt-table-btn:nth-child(2) { animation-delay: 0.02s; }
+.char-list-col .char-item:nth-child(3), .snap-timeline .snap-item:nth-child(3),
+.map-side .map-poi-row:nth-child(3), .nt-list-col .nt-table-btn:nth-child(3) { animation-delay: 0.04s; }
+.char-list-col .char-item:nth-child(4), .snap-timeline .snap-item:nth-child(4),
+.map-side .map-poi-row:nth-child(4), .nt-list-col .nt-table-btn:nth-child(4) { animation-delay: 0.06s; }
+.char-list-col .char-item:nth-child(5), .snap-timeline .snap-item:nth-child(5),
+.map-side .map-poi-row:nth-child(5), .nt-list-col .nt-table-btn:nth-child(5) { animation-delay: 0.08s; }
+.char-list-col .char-item:nth-child(6), .snap-timeline .snap-item:nth-child(6),
+.map-side .map-poi-row:nth-child(6), .nt-list-col .nt-table-btn:nth-child(6) { animation-delay: 0.10s; }
+.char-list-col .char-item:nth-child(n+7), .snap-timeline .snap-item:nth-child(n+7),
+.map-side .map-poi-row:nth-child(n+7), .nt-list-col .nt-table-btn:nth-child(n+7) { animation-delay: 0.12s; }
+
+/* ------------------------------------------------------------
+   4. 交互质感：按钮 / 导航 / 卡片 / 选项卡
+   ------------------------------------------------------------ */
+button {
+  transition:
+    background-color 0.16s var(--ease-soft), border-color 0.16s var(--ease-soft),
+    color 0.16s var(--ease-soft), box-shadow 0.22s var(--ease-soft),
+    transform 0.12s var(--ease-soft);
+}
+button:active:not(:disabled) { transform: translateY(1px) scale(0.985); }
+button.primary:hover:not(:disabled) {
+  box-shadow: 0 4px 16px rgba(214, 186, 110, 0.24), 0 0 0 1px var(--gold-dark) inset;
+}
+
+/* 导航：悬停时左侧有一道金线"长出来"，图标轻轻浮起 */
+.game-nav .nav-item {
+  position: relative; overflow: hidden;
+  transition: background-color 0.18s var(--ease-soft), color 0.18s var(--ease-soft);
+}
+.game-nav .nav-item::before {
+  content: ''; position: absolute; left: 0; top: 50%; width: 2px; height: 0;
+  transform: translateY(-50%);
+  background: var(--gold-grad);
+  transition: height 0.24s var(--ease-out);
+}
+.game-nav .nav-item:hover::before, .game-nav .nav-item.active::before { height: 62%; }
+.game-nav .nav-icon { transition: transform 0.2s var(--ease-out), background-color 0.2s, color 0.2s; }
+.game-nav .nav-item:hover .nav-icon { transform: translateY(-1px) scale(1.06); }
+
+/* 卡片：悬停上浮 2px + 金边点亮 */
+.card {
+  transition: border-color 0.2s var(--ease-soft), background-color 0.2s var(--ease-soft),
+              transform 0.2s var(--ease-out), box-shadow 0.24s var(--ease-soft);
+}
+.card.selectable:hover { transform: translateY(-2px); }
+
+/* 选项卡：金色下划线从中间向两侧铺开 */
+.tabs button { position: relative; }
+.tabs button::after {
+  content: ''; position: absolute; left: 50%; right: 50%; bottom: -1px; height: 2px;
+  background: var(--gold-grad);
+  transition: left 0.24s var(--ease-out), right 0.24s var(--ease-out);
+}
+.tabs button.active::after { left: 10%; right: 10%; }
+
+/* 正文选项：像一枚竹简，悬停时向右推出一点 */
+.mortal-option-btn {
+  transition: border-color 0.18s var(--ease-soft), background-color 0.18s var(--ease-soft),
+              transform 0.16s var(--ease-out), box-shadow 0.22s var(--ease-soft);
+}
+.mortal-option-btn:hover { transform: translateX(3px); }
+.mortal-option-btn:active { transform: translateX(3px) scale(0.995); }
+
+/* 提示条：从上方落下 */
+@keyframes gg-toast-in {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: none; }
+}
+.toast { animation: gg-toast-in 0.3s var(--ease-out) both; }
+
+/* 右键菜单：贴着光标"张开" */
+@keyframes gg-menu-in {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+.turn-ctx-menu { animation: gg-menu-in 0.14s var(--ease-out) both; transform-origin: top left; }
+
+/* 折叠区展开：由上而下推出来 */
+.fold-card > .fold-body, .sp-accordion > .sp-prompt-list, .ep-card > .ep-body { animation: gg-slide-down 0.26s var(--ease-out) both; }
+@keyframes gg-slide-down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------------------------
+   5. 加载：墨滴扩散（替代干巴巴的转圈）
+   ------------------------------------------------------------ */
+@keyframes gg-pulse {
+  0%, 100% { opacity: 0.42; transform: scale(0.96); }
+  50%      { opacity: 1;    transform: scale(1.04); }
+}
+.loading-tip { animation: gg-pulse 1.5s var(--ease-soft) infinite; }

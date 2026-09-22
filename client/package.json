@@ -1,0 +1,27 @@
+{
+  "name": "jade-disc-of-creation-client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:battle": "node _unused/battletest/run.js",
+    "test:ui": "node _unused/scene3d/run.act.cjs",
+    "test:e2e": "node _unused/scene3d/run.battle.cjs",
+    "test:all": "npm run test:battle && npm run test:ui && npm run test:e2e"
+  },
+  "dependencies": {
+    "@pixiv/three-vrm": "^3.5.5",
+    "@pixiv/three-vrm-animation": "^3.5.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.186.0",
+    "vrm-mixamo-retarget": "^1.0.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.8"
+  }
+}
