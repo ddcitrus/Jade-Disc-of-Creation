@@ -27,7 +27,7 @@ AI 那部分需要你自己准备一个接口（进游戏第一件事就是配�
 git clone git@github.com:ddcitrus/Jade-Disc-of-Creation.git
 ```
 
-（或者直接下载 ZIP 解压，结果一样。）
+
 
 ### 第一次启动
 
@@ -292,36 +292,7 @@ server/
 
 ---
 
-## 七、什么东西不会传到 GitHub
-
-仓库里只装「程序 + 出厂默认值」。下面这些是你自己玩出来的，`.gitignore` 已经整体排除：
-
-| 东西 | 实际位置 | 挡住它的规则 |
-| --- | --- | --- |
-| 存档、剧情快照、角色快照 | `server/data/saves/` `snapshots/` `char_snaps/` | `server/data/` |
-| 设置（**含真实 API Key**）、数值表改动 | `server/data/settings.json` | 同上 |
-| 世界书、世界因子库 | `server/data/worldbook.json` `factor-library.json` | 同上 |
-| AI 调试日志、用量统计 | `server/data/ai-debug.log` `ai-stats.json` | 同上 |
-| 提示词清单（含你的预设全文） | `client/_unused/prompt-inventory/` | `client/_unused/` |
-| 依赖、构建产物 | `node_modules/` `client/dist/` | 各自一条规则 |
-
-**别人 clone 之后不会少东西。** 服务启动时发现 `server/data/` 不存在会自己把三个子目录建出来，
-所有配置回落到内置默认 —— 里面**不含任何密钥**，使用者必须自己填一次接口才能开始玩。
-
-上传前想自查（只读，不改动任何东西）：
-
-```bash
-python client/_unused/tmp-rest/prepush-check.py
-```
-
-（用你机器上的 Python 3，任意小版本都行。）
-
-它一次查六件事：个人数据有没有被挡住、索引里有没有混进数据文件、历史里有没有泄漏过、
-**要提交的内容里有没有 API Key**、这次提交会动到哪些文件、别人 clone 后源码全不全。全绿再 push。
-
----
-
-## 八、开发者常用命令
+## 七、开发者常用命令
 
 在 `client/` 目录下：
 
@@ -369,7 +340,7 @@ node _unused/scene3d/build.cjs
 
 ---
 
-## 九、素材来源与授权
+## 八、素材来源与授权
 
 - `models/nature/`、`models/characters/`、`tex/` 来自 **Kenney** 与 **Poly Haven**，
   均为 **CC0（公有领域）**，可商用、可修改、无需署名。明细见
@@ -379,7 +350,7 @@ node _unused/scene3d/build.cjs
 
 ---
 
-## 十、常见问题
+## 九、常见问题
 
 **Q：提示「未检测到 client/dist，仅提供 API」**
 前端还没构建。跑一次 `npm run build`（或直接双击 `启动游戏-网页版.bat`）。
