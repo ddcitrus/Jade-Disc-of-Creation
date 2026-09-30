@@ -25,3 +25,4 @@ export const EVO_V2_BIO_NOTE = '';
 export const EVO_V2_EMPTY_KEY_NOTE = '';
 export const EVO_V2_NEW_CHAR_NOTE = '';
 export const DEFAULT_EVOLUTION_RULES = {};
+export const EVO_V2_PERSONALITY_NOTE = '';

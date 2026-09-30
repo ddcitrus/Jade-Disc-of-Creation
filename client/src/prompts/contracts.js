@@ -10,3 +10,4 @@ export const PLAYER_POV_CONTRACT = '';
 export function newCharIntakeLines(...args) { return []; }
 export function storyWordQuotaText(...args) { return ''; }
 export const VIEWPOINT_CONTRACT = '';
+export function actionPriorityText(...args) { return ''; }
