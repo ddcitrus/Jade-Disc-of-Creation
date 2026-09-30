@@ -13,17 +13,29 @@ import { buildMortalProtocolText, MORTAL_PROTOCOL_SEGMENT_ID, MORTAL_PROTOCOL_ME
 import { getEffectiveTuning, serializeNumericTuning } from '../data/numericTuning.js';
 import { colorPalettePromptText } from '../data/colorPalette.js';
 import { NEW_CHAR_V2_TEMPLATE } from '../data/snapshotV2.js';
+import { GRADE_REALM_MAP, gradeToText } from '../data/gradeUtils.js';
 import { isV2Preset } from './evolutionPrompt.js';
-import { PLACEHOLDERS, PRESET_ROLE_META } from '../prompts/tokens.js';
-export { PLACEHOLDERS, PRESET_ROLE_META };
 import { STYLE_PRESETS, DEFAULT_PROMPTS, DEFAULT_STATE_RULES } from '../prompts/storyPresets.js';
 export { STYLE_PRESETS, DEFAULT_PROMPTS, DEFAULT_STATE_RULES };
-import { DEFAULT_OUTPUT_CONTRACT, PLAYER_POV_CONTRACT, newCharIntakeLines } from '../prompts/contracts.js';
-export { DEFAULT_OUTPUT_CONTRACT, PLAYER_POV_CONTRACT };
+import { DEFAULT_OUTPUT_CONTRACT, newCharIntakeLines } from '../prompts/contracts.js';
+export { DEFAULT_OUTPUT_CONTRACT };
 import { DEFAULT_BIO_TEMPLATE, DEFAULT_MEMORY_TEMPLATE, ASSISTANT_OP_TYPES, ASSISTANT_QUERY_SYSTEM, ASSISTANT_MODIFY_SYSTEM } from '../prompts/assistant.js';
 export { DEFAULT_BIO_TEMPLATE, DEFAULT_MEMORY_TEMPLATE, ASSISTANT_OP_TYPES };
 import { DEFAULT_EVOLUTION_RULES } from '../prompts/evolution.js';
 export { DEFAULT_EVOLUTION_RULES };
+
+// 预设段落的角色表（原 prompts/tokens.js，2026-09-24 内联：那张表只剩这一半是活的，
+// 占位符对照表 PLACEHOLDERS 已无人读取，随文件一并删除）。
+// system 段全部合进同一条 system 消息（恒定基座 / 变化区，由「注入顺序」排布）；
+// user / assistant 段各自独立成条附在 system 之后，不参与注入顺序。
+// model 是 SillyTavern 对 assistant 的写法（ST 内部就是 assistant）——接口只认
+// system/user/assistant，直接把 "model" 发出去会被判 400，所以注入前统一归一。
+export const PRESET_ROLE_META = [
+  { v: 'system', zh: '系统提示', hint: '合入 system 消息，位置由「注入顺序」决定' },
+  { v: 'user', zh: '用户消息', hint: '独立 user 消息，模拟玩家发言' },
+  { v: 'assistant', zh: 'AI 发言', hint: '独立 assistant 消息，用于示范文风 / 承接上文' },
+  { v: 'model', zh: 'AI 发言（ST 写法）', hint: 'SillyTavern 里 model 即 assistant，注入时自动归一为 assistant' },
+];
 
 // Mortal 协议占位符名 → 协议段 key（预设引用了占位符的协议不再于末尾重复注入）
 const PROTOCOL_PLACEHOLDER_KEYS = {
@@ -110,7 +122,7 @@ export function playerSnapshotText(save) {
   const c = save.character;
   const w = save.world;
   const lines = [
-    `姓名：${c.name} | 性别：${c.gender} | 种族：${c.race?.name || '人族'} | 境界：${c.realm?.name || '凡人'}`,
+    `角色编号：B1 | 姓名：${c.name} | 性别：${c.gender} | 种族：${c.race?.name || '人族'} | 境界：${c.realm?.name || '凡人'}`,
     `灵根：${rootDisplayName(c.root)} | 身份：${c.origin?.name || '凡人'}`,
     `年龄：${c.age} 岁 · 寿元约 ${Math.max(0, (c.realm?.lifespan || 80) - c.age)} 年`,
     c.traits?.length ? `特质：${c.traits.map(t => `${t.name}（${t.rarity || '普通'}）`).join('、')}` : '特质：无',
@@ -125,14 +137,33 @@ export function playerSnapshotText(save) {
   return lines.join('\n');
 }
 
+/**
+ * NPC 名单。
+ * ⚠ 必须带**角色编号**（C1/C2…）：战斗指令（<battle> 的 units）与演化语句都靠它点名，
+ *   此前这里只给姓名，AI 得靠自己正文里的 ::dialogue 标记去记「谁是几号」——
+ *   两个 NPC 同场时点错编号，程序就会把对手排成"名册里的第一个人"（2026-09-25 的事故）。
+ * 编号来源：名册条目自带的 id（手工建册可能是 npc_xxx）→ 按姓名去快照里反查。
+ */
 export function npcSnapshotsText(save) {
   const npcs = save.npcs || [];
   if (!npcs.length) return '无';
-  return npcs.map(n => [
-    `· ${n.name}（${n.group} · ${n.subtitle || n.realm || '凡人'}）`,
-    n.realm ? `  境界：${n.realm}` : '',
-    n.relations?.length ? `  关系：${n.relations.map(r => `${r.target}(${r.relation})`).join('、')}` : '',
-  ].filter(Boolean).join('\n')).join('\n');
+  const snaps = save.charSnapshots || {};
+  const idOf = (n) => {
+    const own = String(n.id || '').trim();
+    if (/^[ABC]\d+$/.test(own)) return own;
+    const hit = Object.entries(snaps).find(([k, s]) =>
+      /^[ABC]\d+$/.test(k) && String(s?.identity?.name || '').trim() === String(n.name || '').trim());
+    return hit ? hit[0] : '';
+  };
+  return npcs.map(n => {
+    const id = idOf(n);
+    return [
+      `· ${n.name}（${n.group} · ${n.subtitle || n.realm || '凡人'}）`,
+      id ? `  角色编号：${id}` : '',
+      n.realm ? `  境界：${n.realm}` : '',
+      n.relations?.length ? `  关系：${n.relations.map(r => `${r.target}(${r.relation})`).join('、')}` : '',
+    ].filter(Boolean).join('\n');
+  }).join('\n');
 }
 
 function sceneInfoText(save) {
@@ -175,7 +206,7 @@ function worldbookText(wb, recentText = '') {
   return parts.length ? parts.join('\n') : '无命中条目';
 }
 
-// 当前时空块：协议不再自带真实时空，由这一块统一给出权威数值
+// 当前时空块：时空的权威数值由这一块统一给出
 function sceneTimeText(save) {
   const w = save?.world || {};
   const lines = [
@@ -187,22 +218,6 @@ function sceneTimeText(save) {
   if (w.location?.desc) lines.push(`环境：${w.location.desc}`);
   return lines.join('\n');
 }
-
-
-/**
- * 【主角心理留白】——玩家主权里最常被违反的一半。
- *
- * 成因：预设的「写作风格」段（尤其第三人称小说向的模板）常写着「大量内心独白、
- * 以自由间接引语直接给出、不要写成『他想』」。这套写法是为**第三人称小说**设计的；
- * 一旦叙事人称是第二人称（你），它必然变成替玩家断言心理：
- * 「你发现自己并不害怕杀人，甚至感到了一种从未有过的掌控感」——玩家没这么想，代入感当场碎掉。
- *
- * 而既有的三处玩家主权规则（预设「决策禁区」、末尾「玩家主权」、思维链「不得替玩家预设选择/行动/台词」）
- * 全都只覆盖**行动、发言、决定**，没有一条覆盖**心理、情绪、态度、评价** —— 所以拦不住。
- *
- * 这里补上，并且放在末尾契约区（服从度最高），保证**换任何预设都生效**。
- * 与文风无关：这条不是风格偏好，是玩家主权的硬边界。
- */
 
 
 // 玩家自填的「其它约束」：接在所有提示词之后，是整条请求里最靠后的内容。
@@ -316,7 +331,6 @@ function personalityCoreText(save) {
   // 带量纲与短句的偏向清单（文本自带表头），居中项不占篇幅
   const bias = personalityTraitText(p.dims);
   if (bias) parts.push(bias);
-  if (p.scenarios?.length) parts.push(`情景反应：${p.scenarios.map(s => s.say).filter(Boolean).join('；')}`);
   return parts.length ? parts.join('\n') : '（性格深不可测，言行保持一致即可）';
 }
 
@@ -399,7 +413,7 @@ export function buildTokens(save, settings, opts = {}) {
     // {{mortalProtocols}} 令牌：被预设 ${xxx} 引用过的协议段跳过（防与占位符展开重复）
     '{{mortalProtocols}}': buildMortalProtocolText(save, settings?.textRules?.protocols, skipKeys, { battleMode: settings?.battle?.mode, settings }),
     '{{personalityCore}}': personalityCoreText(save),
-    // 数值规则：只注入详细数值表（原「状态与数值变化的判定边界」导语已取消）
+    // 数值规则：只注入详细数值表
     '{{numericRules}}': serializeNumericTuning(getEffectiveTuning(settings)) || '（无数值约束）',
     // 正文着色词表：仅在用户把词表设为「限制」且非空时才有内容
     '{{colorPalette}}': colorPalettePromptText(settings) || '（未限制正文着色）',
@@ -502,8 +516,6 @@ function assembleStoryMessages(settings, save, userInput, storyText) {
   if (paletteText) sys.push(paletteText);
   // 末尾再追加一条强化约束
   sys.push(DEFAULT_OUTPUT_CONTRACT);
-  // 主角心理留白：与预设无关的玩家主权硬边界，紧贴玩家输入之前
-  sys.push(PLAYER_POV_CONTRACT);
   // 玩家自填的其它约束：排到最后，离本轮行动最近
   const extra = extraConstraintsText(settings);
   if (extra) sys.push(extra);
@@ -541,6 +553,43 @@ export function presetPlaceholderUsage(settings) {
     person: text.includes('${叙事人称协议}') || text.includes('{{narrativePerson}}'),
   };
 }
+
+// 品阶 → 境界对照（正文阶段）。正文的数值表只管「境界给多少属性」与「几品装备有多少属性」，
+// 缺「几品对应什么修为」这一层；补在这里，AI 写「七品飞剑」时才有档位可依。
+// 与演化预设 sharedRules 的「品阶与寿元语义对应表」同源，但**不带寿元与妖兽等级** ——
+// 正文的境界基准表里已有逐境界寿元（凡人 80、炼气一层 100），再带一份会与它打架。
+// 表体由 GRADE_REALM_MAP 生成 —— 品阶与境界的对应关系只维护在 gradeUtils.js 那一处，
+// 这里只排字。物品行后缀的境界、界面上的境界，长的都是同一张表。
+// 排法：一品单列（它是「炼气全期」，不像其余是一品一档的小境界）、二十三品单列（渡劫只有一档），
+// 其余每行三档。
+const GRADE_REALM_ROWS = (() => {
+  const cell = n => `${gradeToText(n)}｜${GRADE_REALM_MAP[n]}`;
+  const rows = [];
+  const pushRange = (from, to, perLine) => {
+    for (let i = from; i <= to; i += perLine) {
+      const cells = [];
+      for (let n = i; n < Math.min(i + perLine, to + 1); n++) cells.push(cell(n));
+      rows.push(cells.join('　'));
+    }
+  };
+  rows.push(cell(1));
+  pushRange(2, 22, 3);
+  rows.push(cell(23));
+  pushRange(24, 35, 3);
+  rows.push(cell(36));
+  return rows;
+})();
+
+const GRADE_REALM_TABLE = [
+  '### 【品阶与境界对照】',
+  '',
+  '物品、功法、技能、丹药、符箓的品阶，一律按这张表对应到境界。',
+  '',
+  ...GRADE_REALM_ROWS,
+  '',
+  '同一品分四阶：人阶是常规，玄阶精良，地阶罕见，天阶须有大机缘或镇派底蕴。',
+  '这张表只用来判断场合，不要用它算气血、法力、攻防的数字。',
+].join('\n');
 
 // 基于 SillyTavern 风格预设组装消息
 // 预设结构：{ prompts:[{identifier,name,enabled,role,content,...}], prompt_order, ... }
@@ -634,8 +683,13 @@ function assembleFromSillyTavernPreset(preset, save, settings, { userInput, stor
     wbAlways: (() => { const a = worldbookAlwaysText(settings?.worldbook); return a ? `### 【世界书·恒定设定（每轮必须遵守）】\n${a}` : ''; })(),
     protocolStatic: buildMortalProtocolText(save, settings?.textRules?.protocols, skipKeys, { battleMode: settings?.battle?.mode, settings }),
     textRules: textRulesFill,
-    numeric: (!presetContent.includes('{{numericRules}}') && tokens['{{numericRules}}'] !== '（无数值约束）')
-      ? `### 【数值规则】\n${tokens['{{numericRules}}']}` : '',
+    // 数值表 + 品阶↔境界对照同处一块：数值表那半沿用老判据（预设引用过 {{numericRules}} 就不重复），
+    // 对照表无条件追加 —— 预设引不引用占位符，都要看得到它。
+    numeric: (() => {
+      const rules = (!presetContent.includes('{{numericRules}}') && tokens['{{numericRules}}'] !== '（无数值约束）')
+        ? `### 【数值规则】\n${tokens['{{numericRules}}']}` : '';
+      return [rules, GRADE_REALM_TABLE].filter(Boolean).join('\n\n');
+    })(),
     palette: (!presetContent.includes('{{colorPalette}}') && paletteText) ? paletteText : '',
     memory: (!presetContent.includes('{{narrativeMemory}}') && tokens['{{narrativeMemory}}'] !== '（暂无叙事记忆）')
       ? `### 【叙事记忆】（此前剧情的浓缩摘要，保持连续性）\n${tokens['{{narrativeMemory}}']}` : '',
@@ -649,8 +703,6 @@ function assembleFromSillyTavernPreset(preset, save, settings, { userInput, stor
       && tokens['{{storyText}}'] !== '（故事刚刚开始）')
       ? `### 【最近剧情回顾】（此前剧情原文，保持连贯，不要复述）\n${tokens['{{storyText}}']}` : '',
     contract: DEFAULT_OUTPUT_CONTRACT,
-    // 主角心理留白：玩家主权硬边界，跟输出契约同处末尾契约区（服从度最高）
-    playerPov: PLAYER_POV_CONTRACT,
     extraConstraints: extraConstraintsText(settings),
   };
 

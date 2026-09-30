@@ -1,14 +1,13 @@
 // ===== 演化阶段提示词 · 组装逻辑 =====
 // 契约与规则原文在 ../prompts/evolution.js；本文件负责拼装与解析。
 // 输入：本轮正文 + 各角色当前快照 + 快照编辑规则预设
-// 输出：严格 JSON 信封 { thinking, snapshots, deeds, worldTime }
-import { snapshotsBundleText } from '../data/snapshotSchema.js';
+// 输出：v2 四段信封 <thinking> / <新增角色> / <修改> / <世界时间>
 import { v2BundleText, NEW_CHAR_V2_TEMPLATE } from '../data/snapshotV2.js';
 import { getEffectiveTables } from '../data/numericTuning.js';
 import { formatRealmBoundsTable } from '../data/realmBounds.js';
 import { formatTraitModsTable } from '../data/traitLibrary.js';
-import { EVOLUTION_HARD_CONTRACT, CONCURRENT_BRIDGE_CONTRACT, EVOLUTION_V2_CONTRACT, DEFAULT_EVOLUTION_RULES_FALLBACK, EVO_TRAIT_WRITE_NOTE, EVO_TRAIT_TABLE_NOTE, EVO_BASELINE_HEADING, EVO_V2_BASELINE_NOTE, EVO_V2_TEMPLATE_VALUE_NOTE, EVO_V2_TEMPLATE_CRIT_NOTE, EVO_V2_TEMPLATE_FIELDS_NOTE, EVO_V2_KIND_NOTE, EVO_V2_STATS_NOTE, EVO_V2_EQUIPMENT_NOTE, EVO_V2_ITEM_TYPE_NOTE, EVO_V2_ITEM_GRADE_NOTE, EVO_V2_ITEM_OPTIONAL_NOTE, EVO_V2_RELATION_NOTE, EVO_V2_BIO_NOTE, EVO_V2_EMPTY_KEY_NOTE, EVO_V2_NEW_CHAR_NOTE } from '../prompts/evolution.js';
-export { EVOLUTION_HARD_CONTRACT, EVOLUTION_V2_CONTRACT };
+import { EVOLUTION_V2_CONTRACT, EVO_TRAIT_WRITE_NOTE, EVO_TRAIT_TABLE_NOTE, EVO_V2_BASELINE_NOTE, EVO_V2_TEMPLATE_VALUE_NOTE, EVO_V2_TEMPLATE_CRIT_NOTE, EVO_V2_TEMPLATE_FIELDS_NOTE, EVO_V2_PERSONALITY_NOTE, EVO_V2_KIND_NOTE, EVO_V2_STATS_NOTE, EVO_V2_EQUIPMENT_NOTE, EVO_V2_ITEM_TYPE_NOTE, EVO_V2_ITEM_GRADE_NOTE, EVO_V2_ITEM_OPTIONAL_NOTE, EVO_V2_RELATION_NOTE, EVO_V2_BIO_NOTE, EVO_V2_EMPTY_KEY_NOTE, EVO_V2_NEW_CHAR_NOTE } from '../prompts/evolution.js';
+export { EVOLUTION_V2_CONTRACT };
 
 // 境界数值基准紧凑表（供演化/初始快照提示词约束 AI 生成角色的属性区间）
 // 表本身来自数值表；夹在表前后的说明文字在 ../prompts/evolution.js。
@@ -17,7 +16,7 @@ export { EVOLUTION_HARD_CONTRACT, EVOLUTION_V2_CONTRACT };
 // 故事阶段走 {{numericRules}} 注入的是生效表，若演化阶段注入内置表，AI 在同一个回合里
 // 会看到两套区间（内置表一套、生效表一套，宽窄可能不同），于是新角色的属性按宽表写、
 // 落库时被窄表强行压回，玩家看到的就是「AI 生成的属性超上限」。
-// 同时必须给全列：旧版只输出 HP/MP 两列，攻防/神识/脚力没有区间可依，只能靠编。
+// 同时必须给全列：只输出 HP/MP 两列的话，攻防/神识/脚力没有区间可依，只能靠编。
 function realmBaselineText(tuning) {
   // 用 getEffectiveTables（不是 getEffectiveTuning）：前者同时接受 settings 与 settings.numericTuning
   // 两种入参，且缺表时回落到内置默认，调用方不必关心传的是哪一层。
@@ -42,49 +41,6 @@ function traitModsText() {
 }
 
 
-// ---------- 组装 Stage 2 提示词 ----------
-// args: { storyText, userInput, snapshots(对象), evolutionRules(对象或null), worldInfo }
-export function assembleEvolutionPrompt({
-  storyText, userInput, snapshots, evolutionRules, worldInfo = '', tuning = null,
-}) {
-  const rules = evolutionRules || DEFAULT_EVOLUTION_RULES_FALLBACK;
-  // 拼装规则文本
-  const rulesText = buildRulesText(rules);
-  // 检测是否 concurrent 预设（决定是否附加格式桥接契约）
-  const isConcurrent = !!(rules && typeof rules === 'object'
-    && (rules.sharedRules || rules.itemSharedRules || (rules.prompts && typeof rules.prompts === 'object' && !Array.isArray(rules.prompts))));
-
-  const sys = [
-    '你是一位「修仙故事快照演化引擎」，职责是根据本轮正文与当前各角色快照，按规则输出本轮结束时的最新快照集合。',
-    '',
-    EVOLUTION_HARD_CONTRACT,
-    ...(isConcurrent ? ['', CONCURRENT_BRIDGE_CONTRACT] : []),
-    '',
-    '## 【快照编辑规则】（你必须严格遵守各阶段规则）',
-    rulesText,
-    '',
-    EVO_BASELINE_HEADING,
-    realmBaselineText(tuning),
-    '',
-    '## 【世界信息】',
-    worldInfo || '（无）',
-    '',
-    '## 【当前各角色快照】（本轮起点）',
-    snapshotsBundleText(snapshots),
-    '',
-    '## 【本轮正文】',
-    storyText || '（无正文）',
-    '',
-    '## 【玩家本轮行动】',
-    userInput || '（无具体行动）',
-  ].join('\n');
-
-  return [
-    { role: 'system', content: sys },
-    { role: 'user', content: '请按契约输出本轮演化结果 JSON。' },
-  ];
-}
-
 // 把规则对象拼成可注入文本（兼容三种形态）
 function buildRulesText(rules) {
   // 形态 A：对象
@@ -93,7 +49,7 @@ function buildRulesText(rules) {
     if (rules.sharedRules || rules.itemSharedRules || rules.prompts || rules.outputFormat) {
       return buildFromConcurrentPreset(rules);
     }
-    // 兼容导入的「完整版-物品管理.json」旧结构：contentTemplates / entrySharedRules / stages
+    
     if (rules.contentTemplates || rules.entrySharedRules || rules.stages) {
       return buildFromPresetJson(rules);
     }
@@ -198,7 +154,7 @@ function buildFromConcurrentPreset(preset) {
   return parts.join('\n\n') || '（预设为空，按常识演化）';
 }
 
-// 兼容「完整版-物品管理.json」这类预设文件
+
 function buildFromPresetJson(preset) {
   const parts = [];
   if (preset.name) parts.push(`> 预设名：${preset.name}`);
@@ -239,96 +195,27 @@ function buildFromPresetJson(preset) {
 }
 
 
-// ---------- 解析演化结果 ----------
-// 输入：AI 返回的原文。可能：纯 JSON / 带 ```json 围栏 / 前后有 thinking 文本
-export function parseEvolutionResult(text) {
-  if (!text || typeof text !== 'string') return { ok: false, raw: text, error: '空回复' };
-  let candidate = text.trim();
-
-  // 0. 优先尝试 tagged 格式：<state>...</state> 或 <upstore>...</upstore>
-  //    concurrent-evo-preset 使用 tagged outputFormat
-  const taggedState = candidate.match(/<state[^>]*>([\s\S]*?)<\/state>/i);
-  const taggedUpstore = candidate.match(/<upstore[^>]*>([\s\S]*?)<\/upstore>/i);
-  const taggedBlock = taggedUpstore || taggedState;
-  if (taggedBlock) {
-    // tagged 内容可能是 JSON 或 key=value 格式，尝试 JSON 解析
-    let inner = taggedBlock[1].trim();
-    // 移除 ```json 围栏
-    inner = inner.replace(/```(?:json)?\s*/g, '').replace(/\s*```/g, '').trim();
-    const first = inner.indexOf('{');
-    const last = inner.lastIndexOf('}');
-    if (first >= 0 && last > first) {
-      try {
-        const obj = JSON.parse(inner.slice(first, last + 1));
-        // tagged 格式的 snapshots 可能在顶层或需要包装
-        if (obj.snapshots) {
-          return { ok: true, parsed: obj, raw: text, format: 'tagged' };
-        }
-        // 如果 tagged 块本身就是单个快照对象
-        if (obj.id && obj.identity) {
-          return { ok: true, parsed: { snapshots: { [obj.id]: obj }, deeds: [], thinking: '' }, raw: text, format: 'tagged' };
-        }
-        // 多个快照对象
-        return { ok: true, parsed: { snapshots: obj, deeds: [], thinking: '' }, raw: text, format: 'tagged' };
-      } catch {
-        // tagged 内容不是 JSON，继续尝试其他方式
-      }
-    }
-  }
-
-  // 1. 优先抽取 ```json ... ``` 围栏
-  const fence = candidate.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence) candidate = fence[1].trim();
-
-  // 2. 找到首个 { 与最后一个 }，截取
-  const first = candidate.indexOf('{');
-  const last = candidate.lastIndexOf('}');
-  if (first >= 0 && last > first) {
-    candidate = candidate.slice(first, last + 1);
-  }
-
-  let obj;
-  try {
-    obj = JSON.parse(candidate);
-  } catch (e) {
-    return { ok: false, raw: text, error: 'JSON 解析失败：' + e.message };
-  }
-  return { ok: true, parsed: obj, raw: text, format: 'json' };
-}
-
-// ---------- 构造「打回重写」的反馈提示 ----------
-// errors: validateEvolutionResult().errors
-export function buildRewriteFeedback(originalText, errors) {
-  const flat = [];
-  const walk = (es, indent = '') => {
-    for (const e of (es || [])) {
-      flat.push(`${indent}- ${e.msg || e.code || JSON.stringify(e)}`);
-      if (e.sub) walk(e.sub, indent + '  ');
-    }
-  };
-  walk(errors);
-  return [
-    '你上一轮的演化输出不符合契约，已被打回。请修正后重新输出合法 JSON。',
-    '',
-    '## 校验失败原因',
-    flat.join('\n') || '（未给出具体原因）',
-    '',
-    '## 你上一轮的原始输出（仅供参考，不要原样复述）',
-    '```',
-    String(originalText || '').slice(0, 2000),
-    '```',
-    '',
-    '请严格按契约重新输出本轮演化结果 JSON。不要解释、不要复述正文，直接给出 { ... }。',
-  ].join('\n');
-}
-
-
-/** 判断一份预设是否是 v2 口径 */
+/**
+ * 判断一份预设是否声明了 v2 口径。
+ * 演化阶段只剩 v2 一条路，本函数不再用于选路；唯一消费方是 promptSystem 的
+ * 「首遇即建档」注入 —— 只有 v2 才是「AI 写完整快照 + 程序逐项校验落库」的口径，
+ * 非 v2 预设不注入建档块。
+ * 四条判据：顶层 formatVersion / activePromptGroups / prompts.__v2，以及
+ * 把 v2 标记放在**每个提示词分组**里的形态（player / npc / entry_all_focus /
+ * item_management 各自带 formatVersion:'v2'，顶层反倒什么都不带）。
+ */
 export function isV2Preset(preset) {
   if (!preset || typeof preset !== 'object') return false;
-  return preset.formatVersion === 'v2'
+  if (preset.formatVersion === 'v2'
     || Array.isArray(preset.activePromptGroups)
-    || !!(preset.prompts && preset.prompts.__v2);
+    || !!(preset.prompts && preset.prompts.__v2)) return true;
+  const groups = preset.prompts;
+  if (groups && typeof groups === 'object' && !Array.isArray(groups)) {
+    for (const g of Object.values(groups)) {
+      if (g && typeof g === 'object' && g.formatVersion === 'v2') return true;
+    }
+  }
+  return false;
 }
 
 // ---------- 组装 Stage 2 提示词（v2 路径） ----------
@@ -374,13 +261,14 @@ export function assembleEvolutionPromptV2({
     EVO_V2_ITEM_OPTIONAL_NOTE,
     EVO_V2_RELATION_NOTE,
     EVO_V2_BIO_NOTE,
+    EVO_V2_PERSONALITY_NOTE,
     EVO_V2_EMPTY_KEY_NOTE,
     '',
     '## 【世界信息】',
     worldInfo || '（无）',
     '',
     '## 【当前各角色快照】（本轮起点；只写它们与本轮正文的差异）',
-    v2BundleText(snapshots || {}),
+    v2BundleText(snapshots || {}, { tables: getEffectiveTables(tuning) }),
     '',
     '## 【本轮正文】',
     storyText || '（无正文）',

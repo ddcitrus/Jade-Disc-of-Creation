@@ -4,8 +4,10 @@ import { snapshotFromCharacter, characterClampBonus, syncTraitMods } from './dat
 import { sanitizeSaveInPlace, looksLikeCharId } from './data/saveSanitize.js';
 import { v2ToLegacy, applyEdits, parseNewCharBlocks, nameFromStoryText } from './data/snapshotV2.js';
 import { getEffectiveTables } from './data/numericTuning.js';
+import { syncCultivationFields } from './data/cultivationParams.js';
 import { clampSnapshotStats, isCharClamped } from './data/attrClamp.js';
 import { applyCommandsToSnapshot, sanitizeEquipmentRefs, normalizeItemShape } from './engine/mortalCommands.js';
+import { samePlace } from './engine/placeholderExtractor.js';
 import { api } from './api.js';
 
 export function newSaveId() {
@@ -75,7 +77,7 @@ export { looksLikeCharId };
 export function migrateSave(save) {
   const s = { ...save };
   if (!s.npcs) s.npcs = [];
-  delete s.worldbook; // 世界书已改为跨存档共用（server/data/worldbook.json），存档里不再保留该字段
+  delete s.worldbook; // 世界书跨存档共用（server/data/worldbook.json），存档里不保留该字段
   if (!s.world) s.world = {};
   if (!s.world.factors) s.world.factors = [];
   if (!s.plot) s.plot = { direction: '', styles: {}, guidance: '' };
@@ -97,7 +99,7 @@ export function migrateSave(save) {
   // ---------- 自愈：修历史 bug 写进快照的坏数据 ----------
   // 【bug 1】主角姓名被写成角色 ID（B1）。
   // 【bug 2】bio.longTermGoal 里塞的是「性格底色：…」。
-  // 规则统一放在 data/saveSanitize.js —— 服务端读写存档时也跑同一份，所以即使客户端是旧版本
+  // 规则统一放在 data/saveSanitize.js —— 服务端读写存档时也跑同一份，所以浏览器里存着的老版本前端
   // 也污染不了磁盘数据。
   sanitizeSaveInPlace(s);
   // 名册分组规范化：历史自动建册用过「登场人物」等不在 CHARACTER_GROUPS 里的分组，
@@ -105,7 +107,26 @@ export function migrateSave(save) {
   if (Array.isArray(s.npcs)) {
     s.npcs = s.npcs.map(n => (n && !CHARACTER_GROUPS.includes(n.group) ? { ...n, group: '在场人物' } : n));
   }
+  // 在场/离场自动归类：读档即刷正，不用等下一回合演化落库
+  recomputeNpcGroups(s);
   return s;
+}
+
+// 人物分组自动归类（2026-09-30）：在场/离场跟着快照地点走，判据与正文注入同源（samePlace）。
+// 此前 group 只在新角色建档时写死「在场人物」，会写「离场人物」的老 npcUpdates 通道
+// 已随双阶段改造废弃 ⇒ 名册里清一色在场，连远在冥寒仙府的角色都标在场。
+// 主角/妖兽/自定义组不动；快照没写地点的保持原组（宁可不错杀）；id 匹配不上按姓名兜底。
+export function recomputeNpcGroups(s) {
+  const here = s.world?.location?.name || '';
+  const bundle = s.charSnapshots || {};
+  for (const n of (s.npcs || [])) {
+    if (!n || (n.group !== '在场人物' && n.group !== '离场人物')) continue;
+    const sn = bundle[n.id]
+      || Object.values(bundle).find(v => v?.identity?.name && v.identity.name === n.name);
+    const loc = sn?.action?.location;
+    if (!loc) continue;
+    n.group = samePlace(loc, here) ? '在场人物' : '离场人物';
+  }
 }
 
 // ---------- 角色快照集合工具 ----------
@@ -139,7 +160,7 @@ export function buildCharSnapshotBundle(save, currentSnapshots = {}) {
 // - NPC 按 snapshots 中的非 B1 id 同步回 save.npcs（更新 name/realm/subtitle）
 // - 全部快照集合保存在 save.charSnapshots
 // opts: { tuning: settings.numericTuning, onClamp: (changes) => void, onCommands: ({report,droppedRefs}) => void }
-export function applyEvolvedSnapshots(save, snapshots = {}, deeds = [], opts = {}) {
+export function applyEvolvedSnapshots(save, snapshots = {}, opts = {}) {
   const s = migrateSave(structuredClone(save));
   const newBundle = { ...(s.charSnapshots || {}) };
   const tables = getEffectiveTables(opts.tuning);
@@ -189,6 +210,9 @@ export function applyEvolvedSnapshots(save, snapshots = {}, deeds = [], opts = {
     }
     // 特质词条归一：mods 一律按特质库重算（AI 写什么都不算数），属性栏与校界都以此为准
     merged = syncTraitMods(merged);
+    // 灵根倍率 / 自身修炼倍率：按灵根文字与随身装备重算（同样程序权威）。
+    // ⚠ 必须排在 normalizeItemShape 之后 —— 装备槽归一完了，装备加速才能数全。
+    syncCultivationFields(merged, tables);
     // 数值校界：AI 给出的属性若逾越数值表区间（如炼气一层 HP 写到 5 万），强制改回边界。
     // 校界针对「自身」值：区间只为「仍留在自身里的加成」（出身/种族/加点，characterClampBonus）上移；
     // 特质与装备在自身之外由系统实时叠加，不参与区间（见 attrRows 的「自身＋特质＋装备＝生效」）。
@@ -295,13 +319,8 @@ export function applyEvolvedSnapshots(save, snapshots = {}, deeds = [], opts = {
     if (ni.registered.length) itemFixes.push({ id, registered: ni.registered });
   }
   s.charSnapshots = newBundle;
-  // deeds 写入 plotProgress（人物生平）
-  if (Array.isArray(deeds) && deeds.length) {
-    for (const d of deeds) {
-      const text = [d.time, d.location, d.description].filter(Boolean).join(' · ');
-      if (text) s.plotProgress = [...(s.plotProgress || []), { turn: s.turnCount || 0, timeLabel: d.time || s.world?.timeLabel || '', text }];
-    }
-  }
+  // 在场/离场自动归类（判据与说明见 recomputeNpcGroups）
+  recomputeNpcGroups(s);
   // 校界结果回传给调用方（toast 提示 / 审计）
   if (clamped.length && typeof opts.onClamp === 'function') opts.onClamp(clamped);
   // 指令投影报告（哪些字段由 Mortal 指令写入 / 哪些指令被跳过）
@@ -382,8 +401,8 @@ export function applyEvolutionV2(save, { init = {}, edits = [] } = {}, opts = {}
     finalSnaps[id] = r.snapshot;
     report[id] = { applied: r.applied, skipped: r.skipped };
   }
-  const next = applyEvolvedSnapshots(save, finalSnaps, [], { ...opts, exactIds: Object.keys(finalSnaps) });
-  // v2 不再使用旧的 state/upstore 指令：清空这两个字段，避免旧指令每回合被重复重放（会让物品数量翻倍）
+  const next = applyEvolvedSnapshots(save, finalSnaps, { ...opts, exactIds: Object.keys(finalSnaps) });
+  // v2 不用 state/upstore 指令：清空这两个字段，免得旧指令每回合被重复重放（会让物品数量翻倍）
   for (const id of Object.keys(finalSnaps)) {
     const sn = next.charSnapshots?.[id];
     if (sn && (sn.stateCommands || sn.upstoreCommands)) {
@@ -427,7 +446,7 @@ export function mergeSnapshot(base, overlay, opts = {}) {
 }
 
 // 需要「按名称合并」而不是整条替换的列表字段。
-// 原因：AI 演化输出这些列表时常只写它这轮记得的条目。以前整体替换，玩家原有的特质
+// 原因：AI 演化输出这些列表时常只写它这轮记得的条目。整体替换的话，玩家原有的特质
 // 只要没被 AI 重述就会凭空消失（实测第 8 回合「嗜睡」被新写的「天灵根(火)」顶掉）。
 const NAMED_LIST_KEYS = new Set(['traits', 'skills']);
 
@@ -494,7 +513,7 @@ export async function persistCharSnapshots(saveId, snapshots = {}) {
 
 // 按集合对齐服务端各角色快照：以存档内 charSnapshots 为「全集」，服务端多出来的角色会被删除。
 // 与 persistCharSnapshots 的区别：那个只增不减 —— 回滚（回退 / 重新生成 / 恢复人生快照）会把
-// 存档里的角色集合缩回旧版本，被回滚掉的角色在 char_snaps 里会变成永久孤儿。
+// 存档里的角色集合一旦缩回，被回滚掉的角色在 char_snaps 里就变成永久孤儿。
 // 存档里一个角色快照都没有时（旧存档 / 异常状态）不执行，避免误删服务端唯一副本。
 export async function alignCharSnapshots(saveId, snapshots = {}) {
   try {
@@ -627,7 +646,7 @@ export function snapshotSummaryText(save) {
 }
 
 // 恢复快照：把载荷写回存档（保留 id/名称/创建时间与完整故事）
-// 世界书已改为跨存档共用（server/data/worldbook.json）：既不在快照载荷里，也不写回存档。
+// 世界书跨存档共用（server/data/worldbook.json）：既不在快照载荷里，也不写回存档。
 // 老快照文件里可能残留 payload.worldbook，这里显式丢弃，免得它复活成存档字段。
 export function applySnapshotPayload(save, payload, opts = {}) {
   const s = { ...save };
@@ -653,7 +672,7 @@ export function applySnapshotPayload(save, payload, opts = {}) {
 // 但一个回合是从**开跑那一刻的存档副本**算起的（正文 40~90 秒 + 演化，还要算上游重试，最长五分钟），
 // 回合结束才整份写回磁盘；玩家在这段时间里改了方向或风格，那次写盘之后紧接着被回合的整份写回覆盖，
 // 改动就"凭空消失"了。本项目已第四次踩同一类坑，这段机制正是为此设的。
-// 世界书原本也在这张清单里 —— 改为跨存档共用文件后，它根本不在存档里，天然免疫，故已移出。
+// 世界书不在这张清单里：它是跨存档共用文件，根本不在存档里，天然免疫。
 export const PLAYER_OWNED_PATHS = ['plot.direction', 'plot.styles'];
 
 function readByPath(obj, path) {
@@ -784,7 +803,7 @@ export function newWorldbookEntry(partial = {}) {
 }
 
 // 匹配世界书条目，并区分「恒定条目」与「关键词命中条目」
-// 入参是**世界书条目数组**（来自跨存档共用的 settings.worldbook），不再是存档对象。
+// 入参是**世界书条目数组**（来自跨存档共用的 settings.worldbook），不是存档对象。
 // 恒定条目（always=true）逐回合都要注入，内容不变 → 属于可被前缀缓存命中的部分；
 // 命中条目的集合随最近剧情变化 → 属于变化部分。两者在提示词里分开注入。
 export function matchWorldbookSplit(entries, recentText = '') {
@@ -827,5 +846,5 @@ export function newCharacter(partial = {}) {
 
 export { computeAttrs, rootDisplayName };
 
-// 注：原先的 advanceTime(save, hours)「每回合固定推进 N 小时」已移除——
+// 注：世界时间不存在「每回合固定推进 N 小时」这回事——
 // 世界时间现在完全由 AI 在正文里写下的绝对时间决定，读取与应用见 engine/worldTime.js。

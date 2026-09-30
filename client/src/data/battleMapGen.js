@@ -178,12 +178,12 @@ export function generateBattlefield(recipe, opts = {}) {
     }
   }
 
-  // ---------- ② 补障碍：各处错落的不规则岩块（不再有中列墙） ----------
+  // ---------- ② 补障碍：各处错落的不规则岩块 ----------
   let s = battlefieldStats(grid, base);
   const barrier = { main: null, gaps: [], count: 0 };
   if (s.blocked < FIELD_QUOTA.minBlocked) {
     Object.assign(barrier, addBarrier(grid, base, rng, put));
-    if (barrier.count) notes.push(`各处错落布置了 ${barrier.count} 格天然岩块（不再有中列山岩墙）`);
+    if (barrier.count) notes.push(`各处错落布置了 ${barrier.count} 格天然岩块`);
   }
 
   // ---------- ③ 补战术地形：中路争夺点 + 两翼掩体 ----------
@@ -249,8 +249,7 @@ export function generateBattlefield(recipe, opts = {}) {
 
 /**
  * 自然散布若干「不规则岩块」（blob）。
- * 2026-09-20：旧版在中列造一整道山岩墙（带缺口）—— 玩家反馈「为什么总在中间摆一排岩石」。
- * 现改为随机位置、随机大小（3~7 格）的紧凑岩块，块与块保持最小间距、不连成墙；
+ * 随机位置、随机大小（3~7 格）的紧凑岩块，块与块保持最小间距、不连成墙；
  * 是否封死由最后一步 ensureCrossable 兜底开门。
  */
 function shuffled(arr, rng) {
@@ -309,7 +308,7 @@ function addBarrier(grid, base, rng, put) {
     const got = growBlob(put, rng, cx, cy, blobSize);
     if (got > 0) { seeds.push([cx, cy]); count += got; }
   }
-  // main 仅作为「中路争夺点」的参考列保留（不再有墙）；gaps 已无意义
+  // main 仅作为「中路争夺点」的参考列保留；gaps 已无意义
   return { main: mid, gaps: [], count };
 }
 

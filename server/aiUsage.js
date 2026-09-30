@@ -152,7 +152,7 @@ const STREAM_OPT_REJECT = /stream_options|include_usage/i;
 /**
  * 上游请求封装：默认附带 stream_options.include_usage，好让上游在最后一包回传 token 用量。
  * 若上游以 400 明确拒绝该字段（部分中转/代理不认），自动去掉它重试一次，并把 blocked 置位——
- * 此后不再带（省掉每轮一次的额外往返）。
+ * 此后不带（省掉每轮一次的额外往返）。
  *
  * ⚠️ 被拒绝时已经读过一次 response body，所以这里必须把 errText 一起返回，
  *    调用方**不要**再 resp.text() 一遍（会拿到空串，错误文案就丢了）。
@@ -174,7 +174,7 @@ export function createChatPoster({ fetchImpl, log = () => {} } = {}) {
       let errText = await resp.text().catch(() => '');
       if (resp.status === 400 && !blocked && STREAM_OPT_REJECT.test(errText)) {
         blocked = true;
-        log('上游拒绝 stream_options.include_usage → 已关闭该字段（此后不再请求用量；若上游默认回传则照样有数）');
+        log('上游拒绝 stream_options.include_usage → 关闭该字段（此后不请求用量；若上游默认回传则照样有数）');
         resp = await doFetch(url, { method: 'POST', headers, signal, body: JSON.stringify(body) });
         if (resp.ok) return { resp, errText: '' };
         errText = await resp.text().catch(() => '');

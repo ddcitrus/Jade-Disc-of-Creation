@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import {
   DIFFICULTIES, ORIGINS, RACES, TRAITS, TRAIT_RARITIES, SKILLS, ITEMS,
-  ROOT_TYPES, ROOT_CULTIVATE_RATE, REALMS, WORLD_FACTORS, PERSONALITY_TEMPLATES,
-  centeredDims, personalityTraits, SCENARIOS, GENDERS, PERSONS, LOCATIONS, ATTR_KEYS, SPENDABLE_ATTRS, BASE_ATTRS, traitCost, computeAttrs, rootDisplayName
+  ROOT_TYPES, ROOT_CULTIVATE_RATE, REALMS, WORLD_FACTORS,
+  centeredDims, GENDERS, PERSONS, LOCATIONS, ATTR_KEYS, SPENDABLE_ATTRS, BASE_ATTRS, traitCost, computeAttrs, rootDisplayName
 } from '../data/gameData.js';
 import { buildSave } from '../saveModel.js';
 import { api } from '../api.js';
@@ -28,10 +28,8 @@ export default function CreateWizard({ settings, onCreated, onBack }) {
   const [person, setPerson] = useState(PERSONS[1]);
   const [realm, setRealm] = useState(REALMS[0]);
   const [race, setRace] = useState(null);
-  // 性格
-  const [persTemplate, setPersTemplate] = useState(null);
+  // 性格（只有手动细调维度，无预设模板与情境问答）
   const [persDims, setPersDims] = useState(centeredDims);
-  const [scenarios, setScenarios] = useState(() => SCENARIOS.map(() => ({ on: true, say: '', act: '' })));
   // 初始内容
   const [tab, setTab] = useState('traits');
   const [traits, setTraits] = useState([]);
@@ -84,7 +82,7 @@ export default function CreateWizard({ settings, onCreated, onBack }) {
     const wizard = {
       difficulty, alloc, origin, charName: charName.trim(), age, gender, appearance,
       person, realm, race, traits, skills, items,
-      personality: { dims: persDims, scenarios: scenarios.filter(s => s.on) },
+      personality: { dims: persDims },
       root, worldFactors: factors, saveName: saveName.trim(), location,
       startTime, background, hook
     };
@@ -240,57 +238,11 @@ export default function CreateWizard({ settings, onCreated, onBack }) {
         )}
 
         {step === 3 && (
-          <>
-            <div className="section">
-              <h3>主角性格</h3>
-              <p style={{ color: 'var(--text-dim)', fontSize: 13, marginBottom: 12 }}>
-                这会作为主角初始性格写入当前存档。先选一个接近的内核，模板不消耗点数。
-              </p>
-              <div className="btn-row">
-                <button onClick={() => setPersTemplate(null)}>暂不设定</button>
-              </div>
-              <div className="card-grid">
-                {PERSONALITY_TEMPLATES.map(t => (
-                  <div key={t.name} role="button" tabIndex={0} className={`card selectable ${persTemplate?.name === t.name ? 'selected' : ''}`}
-                    onClick={() => {
-                      setPersTemplate(t);
-                      setPersDims({ ...centeredDims(), ...t.dims });
-                    }}>
-                    <div className="row1"><span className="name">{t.name}</span></div>
-                    <div className="desc">
-                      {personalityTraits(t.dims).map(x => <span key={x.side} className="tag">{x.side} {x.value}/6</span>)}
-                      <div>{t.desc}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="section">
-              <h3>细调性格维度</h3>
-              <div className="hint" style={{ marginBottom: 8 }}>偏哪一侧，哪一侧的名字就会加粗；3 为居中。鼠标悬停可看每个维度的含义。</div>
-              <PersonalityDims dims={persDims} onChange={(key, v) => setPersDims(d => ({ ...d, [key]: v }))} showDesc />
-            </div>
-            <div className="section">
-              <h3>情境问答 · 可选，回答越具体言行越一致</h3>
-              {SCENARIOS.map((sc, i) => (
-                <div className="card" key={i} style={{ marginBottom: 10, opacity: scenarios[i].on ? 1 : 0.5 }}>
-                  <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={scenarios[i].on}
-                      onChange={e => setScenarios(list => list.map((x, j) => j === i ? { ...x, on: e.target.checked } : x))} />
-                    <span style={{ fontSize: 13 }}>{sc.text}</span>
-                  </label>
-                  {scenarios[i].on && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                      <input type="text" placeholder="角色会说的话…" value={scenarios[i].say}
-                        onChange={e => setScenarios(list => list.map((x, j) => j === i ? { ...x, say: e.target.value } : x))} />
-                      <input type="text" placeholder="角色会做的事…" value={scenarios[i].act}
-                        onChange={e => setScenarios(list => list.map((x, j) => j === i ? { ...x, act: e.target.value } : x))} />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </>
+          <div className="section">
+            <h3>细调性格维度</h3>
+            <div className="hint" style={{ marginBottom: 8 }}>偏哪一侧，哪一侧的名字就会加粗；3 为居中。鼠标悬停可看每个维度的含义。</div>
+            <PersonalityDims dims={persDims} onChange={(key, v) => setPersDims(d => ({ ...d, [key]: v }))} showDesc />
+          </div>
         )}
 
         {step === 4 && (
@@ -486,7 +438,6 @@ export default function CreateWizard({ settings, onCreated, onBack }) {
                     <div className="kv"><span className="k">开局时间</span><span className="v">{startTime[0]}年{startTime[1]}月{startTime[2]}日</span></div>
                     <div className="kv"><span className="k">人称</span><span className="v">{person}</span></div>
                     <div className="kv"><span className="k">初始年龄</span><span className="v">{age}岁</span></div>
-                    <div className="kv"><span className="k">主角性格</span><span className="v">{persTemplate?.name || '暂不设定'}</span></div>
                     <div className="kv"><span className="k">特质</span><span className="v">{traits.length ? traits.map(t => t.name).join('、') : '尚未选择'}</span></div>
                     <div className="kv"><span className="k">技能</span><span className="v">{skills.length ? skills.map(s => s.name).join('、') : '尚未选择'}</span></div>
                     <div className="kv"><span className="k">物品</span><span className="v">{items.length ? items.map(i => `${i.name}×${i.count}`).join('、') : '尚未选择'}</span></div>

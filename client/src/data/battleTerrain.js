@@ -54,7 +54,6 @@ export const TERRAINS = RAW.map(t => ({
 
 export const TERRAIN_MAP = new Map(TERRAINS.map(t => [t.id, t]));
 
-export const TERRAIN_IDS = TERRAINS.map(t => t.id);
 export const DEFAULT_TERRAIN_ID = '平地';
 
 /** 地块 → 名称清单文本（注入提示词 / AI 选地块时的唯一可选值）。 */
@@ -125,8 +124,7 @@ export function bakeMap(recipe) {
 }
 
 // ---------- 默认战场（AI 没给地图、且生成器也没走到的最后兜底）----------
-// 2026-09-20 第二次重做：玩家反馈「为什么总在中间摆一排岩石」。
-// 不再有中列山岩墙，改为各处错落、大小不一（3~7 格）的紧凑岩块，块间留足空隙、不连成墙。
+// 各处错落、大小不一（3~7 格）的紧凑岩块，块间留足空隙、不连成墙。
 // 左下草丛 / 右上树林两片掩体，灵脉 / 阵纹放在开阔处作争夺点。
 // 出生区（左右各 3 列）保持平地，保证双方一定站得下、走得出去。
 export function defaultBattleMap() {

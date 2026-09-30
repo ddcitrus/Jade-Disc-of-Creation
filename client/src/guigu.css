@@ -1,309 +1,455 @@
 /* ============================================================
-   造化玉碟 · 鬼谷八荒 换肤层（guigu.css）
+   造化玉碟 · 水墨换肤层（guigu.css）
    ------------------------------------------------------------
    这一层只做「长相」，一个字都不碰布局、尺寸与游戏规则：
-     · 令牌（颜色 / 字体 / 阴影）整体换成「玄色水墨 + 鎏金」
+     · 令牌（颜色 / 字体 / 阴影）整体换成「水墨」——
+       淡墨＝缥碧青宣纸，浓墨＝螺子黛深青
      · 把 theme.css 与 polish.css 里那些写死的浅色（#fff / #fffdf6 / #fbf5e1…）
        逐条覆盖成深色，否则深底上会出现一块块刺眼的白斑
-     · 补上国风装饰件：双线金框、云纹角、朱印、卷轴分隔
+     · 补上国风装饰件：云纹角、墨线分隔、手绘笔触（远山 / 宣纸纹 / 笔锋线）
    载入顺序：theme.css → polish.css → guigu.css（本文件最后，同权重覆盖前者）
+
+   配色出处：水墨UI（shuimo-ui）的中国古法色表。
+   手绘素材：client/public/shuimo/ 下的宣纸纹与笔锋线（水墨UI 原件）。
 
    原则（沿用原设计系统，不破坏它）：
      8px 网格不动 · 字号层级不动 · 控件最小高度不动 · 拖拽相关的 user-select 不动
    ============================================================ */
 
 /* ------------------------------------------------------------
-   1. 令牌：玄色（墨底）＋ 鎏金（亮金）
+   0. 封面字体：飞波正点体（自备，整个进入页面都用它）
+   ------------------------------------------------------------
+   来源：client/src/photo/DAimG_2024071778936232VTRT/飞波正点体V2.1.ttf
+   （15.25 MB，外面那个 rar 解出来就这一个 ttf）。
+   它是「点阵装饰体」—— 每个汉字的轮廓都由大量小点组成，所以**一个字都很贵**：
+   塞 GB2312 整表压出来的 woff2 还有 6.92 MB，而只保留首页真正渲染的字只有 100 KB。
+   因此这里用的是**精确子集**（生成脚本见 _unused/tmp-rest/mksubset2.py，
+   查覆盖率的探针是同一个目录下的 feibocheck.py）。
+   ⚠ 如果以后改了首页的文案，出现新字，必须重跑那个脚本，否则新字会掉回楷体。
+     （2026-09-23 就漏过一次：副标题那两个 ◆ 没进子集，一直在偷用楷体的菱形。）
+   ⚠ 只有 400 一档，**没有 Bold 表** ⇒ 首页一律不加粗；标 700 只会被浏览器合成加粗。
+   ⚠ woff2 在前、ttf 在后：老浏览器不认 woff2 时自动落到 ttf（202 KB）。
+   unicode-range 不写 —— 让浏览器自己判断缺字并回退到下面的 --font-cover 链。 */
+@font-face {
+  font-family: "FeiboZhengDots";
+  src: url("/splash/feibo-title.woff2") format("woff2"),
+       url("/splash/feibo-title.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ------------------------------------------------------------
+   1. 令牌：浓墨（螺子黛底）＋ 淡墨（缥碧宣纸）
+   ------------------------------------------------------------
+   取自水墨UI（shuimo-ui）的中国古法色。整套配色由「金」转为「墨青」：
+     · 浓墨 —— 螺子黛 #13393E 为主的深青墨底，配月白/缥碧的字与笔。
+       前景色改走「缥碧 → 月白」这条冷色带（原来走的是金 #e8ca7c），
+       因为水墨的本体是墨色的浓淡，不是金箔。
+     · 淡墨 —— 缥碧调的青宣纸。底色压低一档（比纯白低），
+       让「纸」这件事有实体感，而不是一片白。
+   令牌名一律沿用旧名（--gold / --gold-* 等）—— 名字里的 "gold" 现在指的
+   是「强调色的那一支」，值已经换成水墨青。改名会牵动 1500 行 CSS，
+   不值得；这里只换值。
    ------------------------------------------------------------ */
 :root {
   color-scheme: dark;
 
-  /* 底：偏暖的墨褐，不用中性黑 —— 中性黑配金色会显得脏 */
-  --bg-0: #100d08;          /* 页面底（最深） */
-  --bg-1: #1d1710;          /* 面板 */
-  --bg-2: #251e14;          /* 次级底 */
-  --bg-3: #322818;          /* 三级底 */
+  /* 底：螺子黛系深青墨。带一点青，不是中性黑 —— 纯黑配墨青会显脏 */
+  --bg-0: #0c2226;          /* 页面底（最深） */
+  --bg-1: #13393e;          /* 面板 */
+  --bg-2: #1a464c;          /* 次级底 */
+  --bg-3: #22545b;          /* 三级底 */
 
   /* ==================================================================
      语义色槽
      ------------------------------------------------------------------
      下面这些是给「组件」用的：条状容器、卡片、凹槽、按钮、表格……
-     以前它们是直接写死深色的（#14100a / #1c1610 之类），一旦要出亮色版
-     就会一块块发黑。现在全部提成名字，两套主题各给一次取值 ——
+     写死的深色在亮色版下会一块块发黑，所以全部提成名字，两套主题各给一次取值 ——
      组件里**不许再出现写死的颜色**，否则亮色版必然漏黑。
      ================================================================== */
 
   /* 条状容器（顶栏、底栏、导航列、页头、抽屉头）的渐变两端 */
-  --surface-bar-a: #1c1610;   --surface-bar-b: #151009;
-  --surface-nav-a: #1b150e;   --surface-nav-b: #14100a;
-  --surface-head-a: #1c1610;  --surface-head-b: #171209;
+  --surface-bar-a: #174045;   --surface-bar-b: #113236;
+  --surface-nav-a: #163d42;   --surface-nav-b: #103035;
+  --surface-head-a: #174045;  --surface-head-b: #14383d;
 
   /* 卡片 / 可点块的渐变两端（-hi 是悬停/选中态） */
-  --surface-card-a: #1e1810;  --surface-card-b: #18130c;
-  --surface-card-hi-a: #2a2113; --surface-card-hi-b: #201a0f;
+  --surface-card-a: #174147;  --surface-card-b: #123439;
+  --surface-card-hi-a: #1e5057; --surface-card-hi-b: #163c42;
 
   /* 凹槽类底（内嵌、输入、代码、战场）—— 一律比所在容器更深 */
-  --surface-well:  #14100a;   /* 输入框 / 内嵌面板 */
-  --surface-deep:  #0d0a06;   /* 属性条槽 / 报告槽 */
-  --surface-code:  #0b0906;   /* 代码与提示词预览 */
-  --surface-field: #0c0a06;   /* 战场画布 / 战报 */
-  --surface-thead: #241d12;   /* 表格表头 */
-  --surface-key:   #1f1910;   /* 表格键列 */
-  --surface-switch: #3a3122;  /* 开关滑轨（关态） */
-  --surface-knob:   #cdbe97;  /* 开关滑块 */
-  --surface-cell:   #332a19;  /* 分段条未选中格 */
-  --surface-cell-hi:#3f3520;
+  --surface-well:  #0f2c31;   /* 输入框 / 内嵌面板 */
+  --surface-deep:  #0a2125;   /* 属性条槽 / 报告槽 */
+  --surface-code:  #081a1e;   /* 代码与提示词预览 */
+  --surface-field: #07161a;   /* 战场画布 / 战报 */
+  --surface-thead: #1a474e;   /* 表格表头 */
+  --surface-key:   #174045;   /* 表格键列 */
+  --surface-switch: #2b5b62;  /* 开关滑轨（关态） */
+  --surface-knob:   #cfe3dd;  /* 开关滑块 */
+  --surface-cell:   #20515a;  /* 分段条未选中格 */
+  --surface-cell-hi:#2b616b;
 
   /* 按钮三态 */
-  --btn-a: #2b2416;        --btn-b: #1f1a10;
-  --btn-hover-a: #3a301b;  --btn-hover-b: #271f12;
-  --btn-danger-a: #351f1a; --btn-danger-b: #261614;
+  --btn-a: #1b4950;        --btn-b: #123439;
+  --btn-hover-a: #245d65;  --btn-hover-b: #174047;
+  --btn-danger-a: #3d2620; --btn-danger-b: #2a1a16;
 
-  /* 鎏金主按钮（渐变 + 上面的字）*/
-  --gold-btn-a: #e8ca7c; --gold-btn-b: #c9a548; --gold-btn-c: #a8842f;
-  --gold-btn-hi-a: #f2d891; --gold-btn-hi-b: #d4b054; --gold-btn-hi-c: #b58f35;
-  --on-gold: #241c08;
-  --on-gold-strong: #1c1507;
+  /* 墨青主按钮（渐变 + 上面的字）—— 旧名 gold-btn-*，值已是缥碧到青绶 */
+  --gold-btn-a: #b6d492; --gold-btn-b: #8fbb72; --gold-btn-c: #5f8c4a;
+  --gold-btn-hi-a: #c9e2ab; --gold-btn-hi-b: #a3cc85; --gold-btn-hi-c: #6f9d56;
+  --on-gold: #0d2b21;
+  --on-gold-strong: #0a221a;
 
-  /* 鎏金底纹（透明度分三档，从极淡到明显）*/
-  --gold-tint: rgba(214, 186, 110, 0.10);
-  --gold-tint-2: rgba(214, 186, 110, 0.16);
+  /* 墨青底纹（透明度分三档，从极淡到明显）*/
+  --gold-tint: rgba(154, 206, 196, 0.09);
+  --gold-tint-2: rgba(154, 206, 196, 0.15);
 
   /* 极细分隔线（比 --border 轻一档，用在行与行之间）*/
-  --hair: rgba(206, 176, 104, 0.13);
+  --hair: rgba(154, 206, 196, 0.12);
 
   /* 滚动条 */
-  --thumb-a: #6f5c30; --thumb-b: #473a1d;
-  --thumb-a-hi: #9a8244; --thumb-b-hi: #6a5729;
+  --thumb-a: #4a7f86; --thumb-b: #2c5b62;
+  --thumb-a-hi: #6ba3a9; --thumb-b-hi: #427a82;
 
   /* 危险色上的文字（比 --danger 亮一档，保证压得过深底）*/
-  --danger-text: #f0a48e;
+  --danger-text: #f2a68e;
 
   /* 正文纸上/纸下的两档（亮色版会把它们翻过来）*/
   --prose-ink: var(--text);
   --prose-paper: transparent;
 
-  /* 遮罩 / 压暗层（原来是 rgba(0,0,0,…)，亮色下要换成暖褐，否则发脏）*/
-  --scrim: rgba(0, 0, 0, 0.30);
-  /* ⚠ 原来自引用写成 `var(--scrim-strong)` —— 自定义属性自引用是**无效值**，
-     于是深色主题下所有取它的地方（滚动条槽、滑块描边）一直拿不到颜色。
-     亮色块里给了真值，所以只有深色是坏的，肉眼很难注意到。 */
-  --scrim-strong: rgba(0, 0, 0, 0.34);
+  /* 遮罩 / 压暗层（亮色下用暖褐，用冷黑会发脏）*/
+  --scrim: rgba(4, 16, 19, 0.30);
+  /* ⚠ 别写成 `var(--scrim-strong)` 自引用 —— 自定义属性自引用是**无效值**，
+  深色主题下所有取它的地方（滚动条槽、滑块描边）会拿不到颜色；
+  亮色块里给了真值，所以只有深色是坏的，肉眼很难注意到。 */
+  --scrim-strong: rgba(4, 16, 19, 0.34);
   /* 正文卡片的那层「纸」底色（半透明，让底纹透出来）*/
-  --paper-veil: rgba(26, 21, 13, 0.86);
-  --paper-veil-strong: rgba(26, 21, 13, 0.90);
+  --paper-veil: rgba(15, 44, 49, 0.86);
+  --paper-veil-strong: rgba(15, 44, 49, 0.90);
 
   /* 世界地图画布 */
-  --map-bg: #0b1410;
+  --map-bg: #0a2126;
 
   /* 战斗壳（顶/侧/浮签都是半透明渐变，必须单独给名字）*/
-  --battle-top-a: rgba(38, 31, 18, 0.95);  --battle-top-b: rgba(26, 21, 12, 0.95);
-  --battle-side-a: rgba(30, 24, 15, 0.94); --battle-side-b: rgba(21, 17, 10, 0.95);
-  --battle-chip-a: rgba(38, 31, 18, 0.96); --battle-chip-b: rgba(24, 19, 11, 0.97);
-  --shell-grad-a: #1e1810; --shell-grad-b: #16110a;
+  --battle-top-a: rgba(23, 64, 70, 0.95);  --battle-top-b: rgba(16, 45, 50, 0.95);
+  --battle-side-a: rgba(19, 55, 61, 0.94); --battle-side-b: rgba(12, 36, 40, 0.95);
+  --battle-chip-a: rgba(23, 64, 70, 0.96); --battle-chip-b: rgba(14, 40, 45, 0.97);
+  --shell-grad-a: #174147; --shell-grad-b: #113338;
 
   /* 主菜单：菜单牌（木牌）与底部压暗 */
-  --menu-btn-a: rgba(40, 33, 20, 0.95);  --menu-btn-b: rgba(24, 19, 12, 0.95);
-  --splash-veil: rgba(0, 0, 0, 0.5);
+  --menu-btn-a: rgba(24, 66, 72, 0.95);  --menu-btn-b: rgba(14, 41, 46, 0.95);
+  --splash-veil: rgba(3, 14, 17, 0.5);
 
   /* 剧情卷轴那张「宣纸」的底色 */
-  --paper-a: rgba(32, 26, 16, 0.90);  --paper-b: rgba(20, 16, 10, 0.92);
+  --paper-a: rgba(19, 56, 62, 0.90);  --paper-b: rgba(12, 35, 40, 0.92);
 
   /* 弹窗遮罩（压暗层） */
-  --overlay-a: rgba(10, 7, 3, 0.62);  --overlay-b: rgba(6, 4, 2, 0.82);
+  --overlay-a: rgba(3, 13, 16, 0.62);  --overlay-b: rgba(2, 9, 11, 0.82);
 
   /* 正文里那颗选项按钮（竹简） */
-  --option-btn-a: rgba(38, 32, 20, 0.88);  --option-btn-b: rgba(27, 22, 14, 0.86);
+  --option-btn-a: rgba(23, 65, 71, 0.88);  --option-btn-b: rgba(15, 43, 48, 0.86);
 
   /* 对话气泡（也是「一张纸」）：常态 / 玩家自己说的那条 */
-  --bubble-a: rgba(38, 32, 20, 0.92);          --bubble-b: rgba(28, 23, 15, 0.90);
-  --bubble-player-a: rgba(52, 42, 22, 0.90);   --bubble-player-b: rgba(34, 27, 16, 0.88);
+  --bubble-a: rgba(23, 65, 71, 0.92);          --bubble-b: rgba(16, 46, 51, 0.90);
+  --bubble-player-a: rgba(30, 79, 72, 0.90);   --bubble-player-b: rgba(20, 58, 54, 0.88);
 
-  --gold: #e8ca7c;          /* 主色：标题 / 强调（对 --bg-1 对比 ≥ 10:1） */
-  --gold-dim: #cfb063;      /* 次主色 */
-  --gold-dark: #8b7030;     /* 装饰边（深金） */
-  --gold-bg: rgba(214, 186, 110, 0.13);
+  --gold: #cfe6de;          /* 主色：标题 / 强调（月白系，对 --bg-1 对比 ≥ 10:1） */
+  --gold-dim: #a8cfc8;      /* 次主色（缥碧灰） */
+  --gold-dark: #5f8f95;     /* 装饰边（青鸾） */
+  --gold-bg: rgba(154, 206, 196, 0.12);
 
-  --text: #eee5cd;          /* 正文 */
-  --text-dim: #c0b394;      /* 次级文字 */
-  --text-faint: #948868;    /* 弱提示 */
+  --text: #e4f0ec;          /* 正文（近月白） */
+  --text-dim: #b0cbc7;      /* 次级文字 */
+  --text-faint: #87a7a6;    /* 弱提示 */
 
-  --border: #463b28;
-  --border-gold: rgba(206, 176, 104, 0.46);
+  --border: #2c5b62;
+  --border-gold: rgba(154, 206, 196, 0.42);
 
-  --green: #93c26e;  --green-bg: rgba(147, 194, 110, 0.13);
-  --red: #e08468;    --red-bg: rgba(224, 132, 104, 0.13);
-  --blue: #86b6e6;   --blue-bg: rgba(134, 182, 230, 0.13);
-  --danger: #e08468;
+  --green: #a8cf8a;  --green-bg: rgba(168, 207, 138, 0.13);
+  --red: #e89478;    --red-bg: rgba(232, 148, 120, 0.13);
+  --blue: #9cc4e6;   --blue-bg: rgba(156, 196, 230, 0.13);
+  --danger: #e89478;
 
-  /* 字体：三层，各管一处，绝不交叉 —— 上一版「乱、看不清」就是层与层串了。
-       title —— 只给主菜单/顶栏那种 ≥24px 的大字用。（行楷是大字字体，
-                一落到 13px 的按钮上笔画会连成一片，那就是"糊"的直接来源。）
+  /* 字体：各管一处，绝不交叉 —— 层与层串了就会「乱、看不清」。
+       cover —— **只给进入页面的大标题**，也就是「造化玉碟」这四个字。
+                自备的飞波正点体，精确子集，见本文件 §0。
+                ⚠⚠ 这是一个**刻意不可调**的变量：设置页那三个字体槽都碰不到它。
+                  它不能挂在 --font-title 上（那个变量归「标题与强调」槽管）：
+                  玩家浏览器里存着 title:"song" 时，设置模块会把宋体栈内联写到 <html>，
+                  整页就被改成宋体。真机复现：9 处文字宽度
+                  263.47（飞波）→ 309.64（宋体）。**封面字必须与用户偏好脱钩**，
+                  所以它单独一个变量名、且不写进 fontPrefs 的任何 cssVars。
+       song  —— **只给进入页面除大标题以外的字**：副标题、版本号、三个按钮、
+                「纸色」那一栏。固定宋体，同样与用户偏好脱钩 —— 理由同 cover：
+                这处若改走 --font-serif，玩家偏好里的 title:"song" 一样会改写它，
+                哪天他把标题槽换成行楷，进入页面就跟着变。进入页面是产品的门面，
+                字体字号**整套写死**，只由代码决定。
        ui    —— 其余**所有**界面文字：标签、按钮、列表、表单、表格。走黑体，
                 中文小字只有黑体在屏上能立住笔画。
-       serif —— 分区标题、天道口吻、引文，介于两者之间。
+       serif —— 分区标题、天道口吻、引文。归「标题与强调」槽，可调。
        prose —— 只有小说正文。字号行高都比界面大一号。
      旧的 --font-display 已全站改名（原来它指向行楷，被到处引用 ⇒ 满屏糊字），
      这里直接删掉，免得下次有人又拿它一把刷。 */
-  --font-title: "STXingkai", "华文行楷", "STKaiti", "华文楷体", serif;
+  --font-cover: "FeiboZhengDots", "STXingkai", "华文行楷", "STKaiti", "华文楷体", serif;
+  --font-song: "STSong", "华文宋体", "STZhongs", "华文中宋", "Songti SC", "SimSun", "宋体", serif;
   --font-ui: "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", "PingFang SC", "Hiragino Sans GB", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-serif: "STKaiti", "华文楷体", "KaiTi", "楷体", serif;
   --font-prose: "STSong", "华文宋体", "STZhongs", "华文中宋", "SimSun", "宋体", serif;
   --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
 
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.55);
-  --shadow-3: 0 16px 48px rgba(0, 0, 0, 0.72);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.5);
+  --shadow-3: 0 16px 48px rgba(0, 0, 0, 0.66);
 
-  /* 装饰用：金线（用于分隔、卷轴横杆） */
-  --gold-line: rgba(206, 176, 104, 0.42);
-  --ink-line: linear-gradient(90deg, transparent, rgba(206, 176, 104, 0.5), transparent);
+  /* 装饰用：墨线（用于分隔、卷轴横杆） */
+  --gold-line: rgba(154, 206, 196, 0.38);
+  --ink-line: linear-gradient(90deg, transparent, rgba(154, 206, 196, 0.46), transparent);
 
   /* polish.css 追加的几件：它们带的是「浅底上的暖色阴影」，深底上会发糊/发亮，一并换掉 */
-  --gold-grad: linear-gradient(180deg, #e8ca7c 0%, #cfb063 46%, #8b7030 100%);
-  --shadow-soft: 0 2px 6px rgba(0, 0, 0, 0.5), 0 10px 28px rgba(0, 0, 0, 0.45);
-  --shadow-lift: 0 6px 16px rgba(0, 0, 0, 0.6), 0 18px 44px rgba(0, 0, 0, 0.6);
-  --ring-gold: 0 0 0 1px rgba(214, 186, 110, 0.42);
+  --gold-grad: linear-gradient(180deg, #cfe6de 0%, #a8cfc8 46%, #5f8f95 100%);
+  --shadow-soft: 0 2px 6px rgba(0, 0, 0, 0.45), 0 10px 28px rgba(0, 0, 0, 0.42);
+  --shadow-lift: 0 6px 16px rgba(0, 0, 0, 0.55), 0 18px 44px rgba(0, 0, 0, 0.55);
+  --ring-gold: 0 0 0 1px rgba(154, 206, 196, 0.38);
+
+  /* 手绘边框素材。**两条笔触 + 一张完整框**，用途完全不同：
+
+     ⚠⚠⚠ 2026-09-23 第五刀 —— 把前四刀的方向整个推翻，这里必须写清楚，
+     否则后来的人（包括我）还会顺着错误方向继续修。
+
+     【真正的病因】我前四刀一直把 `line-crossrange.webp`（一条 **548×5 的横线**）
+     当 border-image 用，指望它拉出一圈边框。**结构上就不可能**：
+       · 它只有 5 行像素，是**上/下边**的横截面，里面根本没有"左右边"和"四个角"；
+       · border-image 声明成 `2 / 2px` 时，左右边只能拿"角上的像素"去竖着拉，
+         而那张图的角上没有任何东西 ⇒ 左右边画不出来（实测覆盖率 0.02）；
+       · 退一步给它垫墨底，也只是把"一圈均匀黑边"喂饱 —— 看起来就是**黑色粗边框**，
+         不是水墨。用户一句话点破：「你这不是水墨板框，是黑色边框啊」。
+       真问题不是"怎么让边框显色"，而是"**这张图根本不是边框**"。
+
+     【库里的真实做法】去读 shuimo-ui 原作才看清（lib/components/base/button/button.css）：
+         .m-button { border: 5px double transparent;
+                     border-image: url(./assets/border/base.webp) 8;
+                     background-image: url(./assets/button-mask.svg); }
+       它用的是一张 **156×45 的完整四边手绘框**（`assets/border/base.webp`），
+       四边与四角都是画好的；按钮面是**纯色块**，不是深色板。
+       而 crossrange / vertical 在库里是 **<MBorder> 装饰组件**用的：
+       用 grid 把四条线**摆在内容外面**（`top: -2.5px` 等负偏移），**不是 border**。
+       ⇒ 我拿装饰件的零件去当边框，这才是根上的错。
+
+     【现在的做法】把库那张完整框拿进来当边框：
+       · --sm-frame   = frame-button.webp（156×45，库原件，四边四角齐全）
+       · --sm-framecb = frame-checkbox.webp（48×48，库的勾选框原件）
+       · 用法 `border: 7px double transparent; border-image: var(--sm-frame) 8 / 7px / 0 stretch;`
+         7px 是因为原图四角各占约 3px、slice 8，拉到 7px 时角正好落在边框带上（实测见下方按钮段）。
+       · **必须同时去掉圆角**：圆角会把四角的手绘顿笔切掉，方角才是水漫的笔锋。
+
+     ⚠ 旧那两张横/竖笔触**继续留着**，它们仍有正当用途：
+        · --sm-line-x → `.gg-rule` 分隔线（一条横线，正是它的本职）
+        · --sm-line-y → `.section > h3` 左侧竖笔
+       两处都是"单方向的线"，用它们是对的；**唯独不能当边框**。 */
+  /* ⚠⚠ 2026-09-23 第八刀起，下面这两个**已经没人用了** ——
+     按钮、输入框、勾选框上的手绘水墨框全部撤掉（用户要求）。
+     素材与变量都先留着（回退方便），但**别再以为它们还在起效**：
+     源码里现在只剩这两行定义，没有任何 `border-image` 引用它们。
+     ⚠ 唯一的活口是 --sm-line-x / --sm-line-y，它们仍在给卡片边框与分区标题竖笔。 */
+  --sm-frame: url("/shuimo/frame-button.webp");
+  --sm-framecb: url("/shuimo/frame-checkbox.webp");
+  --sm-line-x: url("/shuimo/line-crossrange.webp");
+  --sm-line-y: url("/shuimo/line-vertical.webp");
+
+  /* 滑动条（滑块）的三件。**按角色命名，不按颜色**（颜色随主题翻转，
+     写进名字里迟早把人绕进去）：
+       --sm-slider-fill   已选段（满墨）
+       --sm-slider-track  未选段（同一支笔触，30% 淡墨）
+       --sm-slider-knob   手柄墨点
+     ⚠⚠ 这里是**浓墨（默认主题）**的取值，所以用的是 -chalk-（浅墨）那三份 ——
+        黑墨落在深底上等于看不见。**别看见 chalk 就默认它是给浅色主题用的**：
+        浅墨主题在同文件的 [data-theme="light"] 里换回 -ink-（黑墨）。
+     素材来源与换算见 _unused/tmp-rest/ggshot/make-slider-assets.cjs。 */
+  --sm-slider-fill: url("/shuimo/slider-track-chalk.png");
+  --sm-slider-track: url("/shuimo/slider-track-dim-chalk.png");
+  --sm-slider-knob: url("/shuimo/slider-knob-chalk.png");
+  /* 墨底：**现在几乎不用了**（第五刀把"垫墨底"整个撤掉，因为边框本身已经是完整框）。
+     保留一份深墨青，给少数需要"实心墨块"的地方（如选中态）。 */
+  --sm-ink-base: #0b2427;    /* 浓墨主题的墨底 */
+  /* 宣纸纹理：淡墨用偏冷的生宣，浓墨用偏暖的熟宣压暗一档 */
+  --sm-paper: url("/shuimo/rice-paper.webp");
+  --sm-paper-op: 0.10;
 }
 
 /* ------------------------------------------------------------
-   1b. 宣纸（亮色主题）
+   1b. 淡墨（缥碧青宣纸）
    ------------------------------------------------------------
    由 `<html data-theme="light">` 触发。和上面那套**同名同序**，
    只换取值 —— 所以切换主题不会牵动任何布局与尺寸。
    取值原则：
-     · 底色一律带暖（宣纸米黄），不用纯白，纯白配金色会发贼
-     · 金色在白底上必须**压深**（#8a6a1c），沿用深色版的亮金会直接看不见
-     · 阴影换成暖褐半透明，不能用黑色（白底上的黑阴影会脏）
+     · 底色一律带青（缥碧调的旧宣纸），不用纯白，纯白会像屏幕而不是纸
+     · 强调色（--gold 那一支）在纸上必须**压深**（#2c5f5c），沿用浓墨版的
+       亮月白会直接看不见
+     · 阴影换成青墨半透明，不能用黑色（纸上黑阴影会脏）
      · 对比度按 ≥4.5:1 取值（正文）／≥3:1（大字与边框）
    ------------------------------------------------------------ */
 [data-theme="light"] {
   color-scheme: light;
 
-  --bg-0: #f2e9d4;
-  --bg-1: #fdf8ec;
-  --bg-2: #f7f0df;
-  --bg-3: #f0e6cd;
+  --bg-0: #dfe7d9;
+  --bg-1: #eef2e6;
+  --bg-2: #e5ebdc;
+  --bg-3: #d8e0cd;
 
-  --surface-bar-a: #f6eeda;  --surface-bar-b: #eee2c8;
-  --surface-nav-a: #f7f0dd;  --surface-nav-b: #efe4ca;
-  --surface-head-a: #f6eeda; --surface-head-b: #f0e5cb;
+  --surface-bar-a: #e9efe0;  --surface-bar-b: #dde4d1;
+  --surface-nav-a: #ebf0e2;  --surface-nav-b: #dee5d3;
+  --surface-head-a: #e9efe0; --surface-head-b: #e0e7d6;
 
-  --surface-card-a: #fdf8ec;  --surface-card-b: #f8f1df;
-  --surface-card-hi-a: #fffdf6; --surface-card-hi-b: #fbf5e6;
+  --surface-card-a: #eef2e6;  --surface-card-b: #e6ecdd;
+  --surface-card-hi-a: #f5f8ef; --surface-card-hi-b: #eaf0e2;
 
-  --surface-well:  #f3ead4;
-  --surface-deep:  #ece0c4;
-  --surface-code:  #f0e7d2;
-  --surface-field: #e9dcc0;
-  --surface-thead: #eadfc4;
-  --surface-key:   #f0e7d2;
-  --surface-switch: #cfc0a0;
-  --surface-knob:   #fdf8ec;
-  --surface-cell:   #e6d9bc;
-  --surface-cell-hi:#dbcaa2;
+  --surface-well:  #e2e9d8;
+  --surface-deep:  #d6dfc9;
+  --surface-code:  #e3ead9;
+  --surface-field: #d0dac2;
+  --surface-thead: #dae2cd;
+  --surface-key:   #e3ead9;
+  --surface-switch: #b6c4a8;
+  --surface-knob:   #eef2e6;
+  --surface-cell:   #d3dcc5;
+  --surface-cell-hi:#c6d1b6;
 
-  --btn-a: #f7efdc;        --btn-b: #efe4c9;
-  --btn-hover-a: #fdf8ec;  --btn-hover-b: #f4ead5;
-  --btn-danger-a: #f9e3dc; --btn-danger-b: #f2d3c9;
+  --btn-a: #e8eedf;        --btn-b: #dce4d0;
+  --btn-hover-a: #f2f6ec;  --btn-hover-b: #e4ead9;
+  --btn-danger-a: #f4e2dc; --btn-danger-b: #ebd3cb;
 
-  --gold-btn-a: #e0bc68; --gold-btn-b: #c39c40; --gold-btn-c: #9a7728;
-  --gold-btn-hi-a: #eccb7c; --gold-btn-hi-b: #cfa84c; --gold-btn-hi-c: #a8842f;
-  --on-gold: #2c2410;
-  --on-gold-strong: #221b0a;
+  --gold-btn-a: #9dc47e; --gold-btn-b: #7aa85e; --gold-btn-c: #5b8a44;
+  --gold-btn-hi-a: #b0d492; --gold-btn-hi-b: #8bb86c; --gold-btn-hi-c: #689a50;
+  --on-gold: #0c2419;
+  --on-gold-strong: #081c12;
 
-  --gold: #8a6a1c;
-  --gold-dim: #9c7c28;
-  --gold-dark: #c2a45c;
-  --gold-bg: rgba(154, 122, 40, 0.12);
-  --gold-tint: rgba(154, 122, 40, 0.09);
-  --gold-tint-2: rgba(154, 122, 40, 0.15);
+  --gold: #2c5f5c;
+  --gold-dim: #376c68;
+  --gold-dark: #7ba39c;
+  --gold-bg: rgba(44, 95, 92, 0.11);
+  --gold-tint: rgba(44, 95, 92, 0.08);
+  --gold-tint-2: rgba(44, 95, 92, 0.14);
 
-  --text: #2b2415;
-  --text-dim: #5a5036;
-  --text-faint: #8b7c5c;
+  --text: #1b2a24;
+  --text-dim: #42544b;
+  --text-faint: #6b7d72;
 
-  --border: #ded0ac;
-  --border-gold: rgba(154, 122, 40, 0.42);
-  --hair: rgba(154, 122, 40, 0.16);
+  --border: #b6c4a8;
+  --border-gold: rgba(44, 95, 92, 0.38);
+  --hair: rgba(44, 95, 92, 0.15);
 
-  --green: #4a7a2e;  --green-bg: rgba(74, 122, 46, 0.12);
-  --red: #a8452c;    --red-bg: rgba(168, 69, 44, 0.12);
-  --blue: #2f6390;   --blue-bg: rgba(47, 99, 144, 0.12);
-  --danger: #a8452c;
-  --danger-text: #8e3520;
+  --green: #3f6b28;  --green-bg: rgba(63, 107, 40, 0.12);
+  --red: #9c451f;    --red-bg: rgba(156, 69, 31, 0.12);
+  --blue: #2b5c8c;   --blue-bg: rgba(43, 92, 140, 0.12);
+  --danger: #9c451f;
+  --danger-text: #8a3a18;
 
-  --thumb-a: #c9b78a; --thumb-b: #b5a173;
-  --thumb-a-hi: #b9a476; --thumb-b-hi: #a08c5c;
+  --thumb-a: #a9b89a; --thumb-b: #97a788;
+  --thumb-a-hi: #99aa87; --thumb-b-hi: #849575;
 
-  --shadow-1: 0 1px 2px rgba(96, 78, 38, 0.16);
-  --shadow-2: 0 4px 14px rgba(96, 78, 38, 0.14);
-  --shadow-3: 0 16px 44px rgba(80, 62, 26, 0.20);
-  --shadow-soft: 0 2px 6px rgba(96, 78, 38, 0.12), 0 10px 26px rgba(96, 78, 38, 0.14);
-  --shadow-lift: 0 6px 16px rgba(96, 78, 38, 0.16), 0 18px 40px rgba(96, 78, 38, 0.18);
+  --shadow-1: 0 1px 2px rgba(40, 62, 46, 0.16);
+  --shadow-2: 0 4px 14px rgba(40, 62, 46, 0.14);
+  --shadow-3: 0 16px 44px rgba(32, 52, 38, 0.20);
+  --shadow-soft: 0 2px 6px rgba(40, 62, 46, 0.12), 0 10px 26px rgba(40, 62, 46, 0.14);
+  --shadow-lift: 0 6px 16px rgba(40, 62, 46, 0.16), 0 18px 40px rgba(40, 62, 46, 0.18);
 
-  --gold-line: rgba(154, 122, 40, 0.38);
-  --ink-line: linear-gradient(90deg, transparent, rgba(154, 122, 40, 0.5), transparent);
-  --gold-grad: linear-gradient(180deg, #e0bc68 0%, #c39c40 46%, #9a7728 100%);
-  --ring-gold: 0 0 0 1px rgba(154, 122, 40, 0.35);
+  --gold-line: rgba(44, 95, 92, 0.34);
+  --ink-line: linear-gradient(90deg, transparent, rgba(44, 95, 92, 0.46), transparent);
+  --gold-grad: linear-gradient(180deg, #9dc47e 0%, #7aa85e 46%, #5b8a44 100%);
+  --ring-gold: 0 0 0 1px rgba(44, 95, 92, 0.32);
 
-  --prose-ink: #2b2415;
-  --prose-paper: rgba(255, 252, 244, 0.55);
+  --prose-ink: #1b2a24;
+  --prose-paper: rgba(250, 252, 246, 0.5);
 
-  --scrim: rgba(120, 100, 60, 0.10);
-  --scrim-strong: rgba(120, 100, 60, 0.14);
-  --paper-veil: rgba(253, 248, 236, 0.92);
-  --paper-veil-strong: rgba(255, 253, 246, 0.95);
+  --scrim: rgba(70, 96, 74, 0.10);
+  --scrim-strong: rgba(70, 96, 74, 0.14);
+  --paper-veil: rgba(238, 242, 230, 0.92);
+  --paper-veil-strong: rgba(243, 247, 237, 0.95);
 
-  --map-bg: #e6dcbe;
+  /* ⚠ 这两个框**没有消费方**（全站已不用水墨框）—— 留着只为兼容旧引用。 */
+  --sm-frame: url("/shuimo/frame-button-ink.webp");
+  --sm-framecb: url("/shuimo/frame-checkbox.webp");
+  --sm-ink-base: #3d5a4c;
 
-  --battle-top-a: rgba(250, 243, 228, 0.96);  --battle-top-b: rgba(244, 236, 217, 0.97);
-  --battle-side-a: rgba(248, 240, 223, 0.95); --battle-side-b: rgba(242, 234, 214, 0.96);
-  --battle-chip-a: rgba(250, 243, 228, 0.97); --battle-chip-b: rgba(243, 235, 215, 0.98);
-  --shell-grad-a: #f8f1df; --shell-grad-b: #f2e9d4;
+  /* 滑动条：浅墨主题换回**黑墨**那三份（与上面浓墨主题相反，注意别抄错方向）。 */
+  --sm-slider-fill: url("/shuimo/slider-track-ink.png");
+  --sm-slider-track: url("/shuimo/slider-track-dim-ink.png");
+  --sm-slider-knob: url("/shuimo/slider-knob-ink.png");
 
-  --menu-btn-a: rgba(253, 249, 240, 0.96); --menu-btn-b: rgba(244, 236, 217, 0.96);
-  --splash-veil: rgba(120, 100, 60, 0.16);
-  --paper-a: rgba(255, 253, 247, 0.94);    --paper-b: rgba(247, 240, 224, 0.95);
-  --overlay-a: rgba(60, 48, 26, 0.42);     --overlay-b: rgba(48, 38, 20, 0.55);
-  --option-btn-a: rgba(255, 252, 244, 0.92); --option-btn-b: rgba(247, 240, 224, 0.92);
-  --bubble-a: rgba(255, 253, 247, 0.93);        --bubble-b: rgba(247, 240, 224, 0.92);
-  --bubble-player-a: rgba(248, 238, 214, 0.94); --bubble-player-b: rgba(240, 229, 200, 0.92);
+  --map-bg: #d4ddc7;
+
+  --battle-top-a: rgba(238, 242, 230, 0.96);  --battle-top-b: rgba(228, 234, 218, 0.97);
+  --battle-side-a: rgba(235, 240, 226, 0.95); --battle-side-b: rgba(225, 232, 215, 0.96);
+  --battle-chip-a: rgba(238, 242, 230, 0.97); --battle-chip-b: rgba(226, 233, 216, 0.98);
+  --shell-grad-a: #e9efe0; --shell-grad-b: #dfe7d9;
+
+  --menu-btn-a: rgba(243, 247, 237, 0.96); --menu-btn-b: rgba(226, 233, 216, 0.96);
+  --splash-veil: rgba(60, 90, 72, 0.16);
+  --paper-a: rgba(245, 249, 240, 0.94);    --paper-b: rgba(232, 238, 224, 0.95);
+  --overlay-a: rgba(38, 56, 44, 0.42);     --overlay-b: rgba(28, 44, 34, 0.55);
+  --option-btn-a: rgba(243, 247, 237, 0.92); --option-btn-b: rgba(232, 238, 224, 0.92);
+  --bubble-a: rgba(245, 249, 240, 0.93);        --bubble-b: rgba(232, 238, 224, 0.92);
+  --bubble-player-a: rgba(228, 238, 220, 0.94); --bubble-player-b: rgba(216, 228, 206, 0.92);
+
+  /* 宣纸纹理：纸上用偏暖的那张（色调更旧），配一点 opacity */
+  --sm-paper: url("/shuimo/rice-paper-warm.webp");
+  --sm-paper-op: 0.14;
 }
 
 /* ------------------------------------------------------------
-   2. 底：水墨山水（远山 + 云气 + 金纹），固定不随滚动
+   2. 底：水墨山水（远山 + 云气 + 宣纸纹），固定不随滚动
    ------------------------------------------------------------ */
-/* 远山：三层山脊，越近越暗、金边越明显 —— 纯 CSS 画不出山，
+/* 远山：三层山脊，越近越暗、墨边越明显 —— 纯 CSS 画不出山，
    所以这里内联一段极小体量的 SVG（不许外链，否则离线就白底）。
-   山脊线用金而不是黑，是为了让深底「有东西可看」又不抢主体内容。 */
+   山脊线用墨青而不是黑，是为了让深底「有东西可看」又不抢主体内容。
+   ⚠ 这一层的每一处色值都从「金」改成了「墨青」（#8fbdb6 系）。
+     水墨的远近是靠**墨色浓淡**拉开的，所以三层依次加深、最远那层最淡。 */
 body {
   background-color: var(--bg-0);
   background-image:
-    /* 顶部天光 */
-    radial-gradient(ellipse 74% 42% at 50% -6%, rgba(214, 186, 110, 0.11), transparent 62%),
-    /* 两侧云气（冷调，与金色形成冷暖对比） */
-    radial-gradient(ellipse 46% 38% at 8% 16%, rgba(94, 132, 122, 0.055), transparent 70%),
-    radial-gradient(ellipse 50% 40% at 94% 74%, rgba(94, 132, 122, 0.045), transparent 72%),
     /* 远山剪影：三层山脊（平滑曲线，不是折线）＋ 一轮淡月 ＋ 几缕云气 ＋ 三株松影。
-       填充色一层比一层深 ⇒ 近山压远山，自然出纵深；山脊线留一道金边当"月光勾边"。 */
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 560'%3E%3Ccircle cx='1150' cy='138' r='72' fill='%23ceb068' fill-opacity='.05'/%3E%3Ccircle cx='1150' cy='138' r='72' fill='none' stroke='%23ceb068' stroke-opacity='.12'/%3E%3Cg fill='none' stroke='%23ceb068' stroke-opacity='.09' stroke-width='1.3'%3E%3Cpath d='M170 156c16-24 48-24 62-4 13-18 44-15 48 6'/%3E%3Cpath d='M690 92c12-18 36-18 46-3 11-13 32-11 36 5'/%3E%3Cpath d='M1010 202c14-20 42-20 54-3 12-15 38-13 42 5'/%3E%3C/g%3E%3Cpath fill='%23181207' stroke='%23ceb068' stroke-opacity='.10' d='M0 356C70 330 110 268 178 286 236 302 268 236 336 256 396 274 430 196 508 226 560 246 592 190 668 214 730 234 768 172 842 202 906 228 946 186 1024 212 1090 234 1128 196 1200 218 1268 238 1320 210 1382 228 1410 236 1428 240 1440 244L1440 560 0 560Z'/%3E%3Cpath fill='%23130e07' stroke='%23ceb068' stroke-opacity='.14' d='M0 424C86 400 132 348 208 368 288 388 336 322 424 346 512 370 566 312 660 336 748 358 802 304 896 328 986 350 1042 306 1136 330 1216 350 1272 320 1352 342 1396 354 1420 356 1440 360L1440 560 0 560Z'/%3E%3Cg fill='%23ceb068' fill-opacity='.11'%3E%3Cpath transform='translate(286,344) scale(1.4)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3Cpath transform='translate(314,352) scale(1.1)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3Cpath transform='translate(1004,338) scale(1.25)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3C/g%3E%3Cpath fill='%230e0a05' stroke='%23ceb068' stroke-opacity='.19' d='M0 494C96 474 156 434 252 454 344 472 404 426 502 448 600 470 664 428 764 448 862 468 926 430 1024 450 1114 468 1178 438 1268 456 1338 470 1398 462 1440 466L1440 560 0 560Z'/%3E%3C/svg%3E"),
-    /* 斜向金纹（极淡，负责"纸纹"质感） */
+       填充色一层比一层深 ⇒ 近山压远山，自然出纵深；山脊线留一道墨边。 */
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 560'%3E%3Ccircle cx='1150' cy='138' r='72' fill='%238fbdb6' fill-opacity='.05'/%3E%3Ccircle cx='1150' cy='138' r='72' fill='none' stroke='%238fbdb6' stroke-opacity='.12'/%3E%3Cg fill='none' stroke='%238fbdb6' stroke-opacity='.09' stroke-width='1.3'%3E%3Cpath d='M170 156c16-24 48-24 62-4 13-18 44-15 48 6'/%3E%3Cpath d='M690 92c12-18 36-18 46-3 11-13 32-11 36 5'/%3E%3Cpath d='M1010 202c14-20 42-20 54-3 12-15 38-13 42 5'/%3E%3C/g%3E%3Cpath fill='%23122f34' stroke='%238fbdb6' stroke-opacity='.10' d='M0 356C70 330 110 268 178 286 236 302 268 236 336 256 396 274 430 196 508 226 560 246 592 190 668 214 730 234 768 172 842 202 906 228 946 186 1024 212 1090 234 1128 196 1200 218 1268 238 1320 210 1382 228 1410 236 1428 240 1440 244L1440 560 0 560Z'/%3E%3Cpath fill='%230d2529' stroke='%238fbdb6' stroke-opacity='.14' d='M0 424C86 400 132 348 208 368 288 388 336 322 424 346 512 370 566 312 660 336 748 358 802 304 896 328 986 350 1042 306 1136 330 1216 350 1272 320 1352 342 1396 354 1420 356 1440 360L1440 560 0 560Z'/%3E%3Cg fill='%238fbdb6' fill-opacity='.11'%3E%3Cpath transform='translate(286,344) scale(1.4)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3Cpath transform='translate(314,352) scale(1.1)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3Cpath transform='translate(1004,338) scale(1.25)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3C/g%3E%3Cpath fill='%23091c20' stroke='%238fbdb6' stroke-opacity='.19' d='M0 494C96 474 156 434 252 454 344 472 404 426 502 448 600 470 664 428 764 448 862 468 926 430 1024 450 1114 468 1178 438 1268 456 1338 470 1398 462 1440 466L1440 560 0 560Z'/%3E%3C/svg%3E"),
+    /* 顶部天光 */
+    radial-gradient(ellipse 74% 42% at 50% -6%, rgba(154, 206, 196, 0.10), transparent 62%),
+    /* 两侧云气 */
+    radial-gradient(ellipse 46% 38% at 8% 16%, rgba(120, 176, 166, 0.06), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 94% 74%, rgba(120, 176, 166, 0.05), transparent 72%),
+    /* 斜向墨纹（极淡，配合宣纸纹出"笔痕"） */
     repeating-linear-gradient(135deg,
-      transparent 0 26px, rgba(206, 176, 104, 0.026) 26px 27px),
+      transparent 0 26px, rgba(154, 206, 196, 0.024) 26px 27px),
     repeating-linear-gradient(45deg,
-      transparent 0 82px, rgba(206, 176, 104, 0.020) 82px 83px),
-    radial-gradient(ellipse at 50% 112%, #171208 0%, #100d08 64%);
+      transparent 0 82px, rgba(154, 206, 196, 0.018) 82px 83px),
+    radial-gradient(ellipse at 50% 112%, #0a1f23 0%, #0c2226 64%);
   background-attachment: fixed;
-  background-size: auto, auto, auto, 100% auto, auto, auto, auto;
-  background-position: 0 0, 0 0, 0 0, center bottom, 0 0, 0 0, 0 0;
-  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat, repeat, no-repeat;
+  background-size: auto, auto, auto, auto, auto, auto, auto;
+  background-position: 0 0, 0 0, 0 0, 0 0, 0 0, center bottom, 0 0;
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, repeat, repeat;
   color: var(--text);
 }
+/* 宣纸纹的浓度靠这一层调：直接给 body 加滤镜会把字也糊掉，
+   所以改成在 body::before 上单铺一层，只压纹、不碰内容。
+   ⚠⚠ 纸纹**只能待在这里**，绝不能再往 body 的 background-image 里塞一份 ——
+     踩过：纸色素材是浅的，作为 body 背景的第一层（background-size: auto，不透明）
+     会整片盖住底下的深青，浓墨主题的主菜单因此被洗成一片灰白
+     （实测中心平均亮度 0.41，撤掉那一层后 0.025 —— 是它，不是 mix-blend-mode）。
+     放在 ::before 上则有 opacity 管着，且能 blend，深浅两套都能用。 */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  pointer-events: none; z-index: 0;
+  background-image: var(--sm-paper);
+  background-repeat: repeat;
+  opacity: var(--sm-paper-op);
+  mix-blend-mode: overlay;
+}
+/* 让内容层压在纸纹之上（不设的话纸纹会盖住一部分写死 z-index:0 的面板） */
+#root { position: relative; z-index: 1; }
 
 /* 界面的默认字：黑体。
-   上一版把楷体/宋体一路铺到按钮、列表、表单上 —— 13px 的中文楷体笔画会糊成一片，
-   「乱、看不清」就是这个来的。现在只有四处例外：
+   13px 的中文楷体笔画会糊成一片，所以字体只分四处、互不交叉：
      · 主菜单大标题        → 行楷（.splash .main-title，见文件末尾）
      · 各级标题 h1~h4      → 楷体（字号本来就大，不会糊）
      · 小说正文与正文块    → 宋体（.story-text / .mortal-*）
@@ -311,13 +457,33 @@ body {
 body, button, input, select, textarea, optgroup, kbd, samp {
   font-family: var(--font-ui);
 }
+/* 手绘笔锋光标：水墨UI 的三支 32×32 笔尖（默认 / 可点 / 禁用）。
+   默认那支是「笔尖斜向上」的书法笔，配水墨界面本身就是一件装饰。
+   ⚠ 只在**有指针的设备**上用；触屏没有光标，白下载三个文件。
+   ⚠ 不给 input/textarea 用（那些地方要 I 形光标，换掉反而找不到插入点）。 */
+@media (hover: hover) and (pointer: fine) {
+  html, body { cursor: url("/shuimo/cursor-auto.webp") 4 4, auto; }
+  button:not(:disabled), a, [role="button"],
+  select, summary, .card.selectable, .nav-item, .theme-opt, .font-chip,
+  input[type="checkbox"], input[type="radio"], input[type="color"] {
+    cursor: url("/shuimo/cursor-pointer.webp") 4 4, pointer;
+  }
+  button:disabled, input:disabled, select:disabled,
+  .nav-item:disabled, .theme-opt:disabled {
+    cursor: url("/shuimo/cursor-disabled.webp") 4 4, not-allowed;
+  }
+  /* 可拖拽区块（回合排序那一类）：保留系统 move 光标，
+     换成笔尖会让玩家以为"点下去是选择"而不是"拖"。 */
+  [draggable="true"], .tl-item { cursor: grab; }
+  [draggable="true"]:active, .tl-item:active { cursor: grabbing; }
+}
 /* 标题：楷体 + 加粗；字距从 3px 收到 1~2px（原来 3px 配小字号像散架） */
 h1, h2 { font-family: var(--font-serif); font-weight: 600; color: var(--gold); letter-spacing: 2px; }
 h3 { font-family: var(--font-serif); font-weight: 600; color: var(--gold); letter-spacing: 1px; }
 h4 { font-family: var(--font-serif); font-weight: 600; color: var(--gold-dim); }
 
-/* 选中文字：朱砂底金字 */
-::selection { background: rgba(214, 186, 110, 0.3); color: #fff8e8; }
+/* 选中文字：墨青底、月白字 */
+::selection { background: rgba(154, 206, 196, 0.30); color: #eaf6f2; }
 
 /* 滚动条：细金 */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -349,69 +515,226 @@ h4 { font-family: var(--font-serif); font-weight: 600; color: var(--gold-dim); }
   background-size: 24px 24px, 24px 24px;
 }
 
-/* 金线分隔（横）：给需要「卷轴横杆」感的地方用 */
+/* 笔锋分隔（横）：一条**手绘横贯笔触**，不用纯色渐变 ——
+几何图形（如菱形）不算水墨，画出来的笔触才算。
+   ⚠ 这一条目前是**死样式**：全项目没有任何地方渲染 `.gg-rule`
+     （源码里零命中，打包产物里零命中，只有本文件在写它）。
+     留着不删是因为它随时可能被某个页面捡起来用；但它没经过实机验证，
+     所以这里不写任何「透明度是量出来的」之类的话。
+     opacity 0.42 只是照它替代的那条渐变线的观感取的。 */
 .gg-rule {
-  height: 1px;
-  background: var(--ink-line);
+  height: 5px;
+  background: var(--sm-line-x) repeat-x center;
+  background-size: auto 5px;
   margin: var(--s3) 0;
+  opacity: 0.42;
   position: relative;
 }
-.gg-rule::after {
-  content: '';
-  position: absolute; left: 50%; top: 50%;
-  width: 7px; height: 7px; margin: -4px 0 0 -4px;
-  background: var(--bg-1);
-  border: 1px solid var(--gold-dark);
-  transform: rotate(45deg);
-}
+/* 笔触本身已经居中收锋，中间那颗菱形反而添乱 —— 去掉。 */
+.gg-rule::after { content: none; }
 
 /* ------------------------------------------------------------
-   4. 按钮：木牌 + 鎏金描边；主按钮＝金印
+   4. 按钮：一张完整的手绘边框 + 纯色牌面
+   ------------------------------------------------------------
+   ⚠⚠⚠ 这一整段是 2026-09-23 **第五刀**重写的。前四刀（垫墨底、加厚到 2px、
+   爬特异性、调层序）全部作废 —— 因为它们修的是错误的方向，详见文件顶部
+   --sm-frame 那段注释。用户的原话是最好的判据：
+       「你这不是水墨板框，是黑色边框啊」
+
+   一、为什么现在是这个写法
+     库里（shuimo-ui）按钮的真实写法只有三行：
+         border: 5px double transparent;
+         border-image: url(base.webp) 8;
+         background-image: url(button-mask.svg);
+     核心是 `base.webp` 这张 **156×45 的完整四边手绘框**：上下左右四条边、
+     四个角上的顿笔，全都画好了。border-image 只负责把它按 slice 8 切九宫格
+     铺开，四边 stretch、四角原样 —— 于是无论按钮多宽，四角和四边都是手绘的。
+     我们照搬，只把**牌面配色**换成自己的（库用的是它自己的古法色变量）。
+
+   二、7px 是怎么定的（不是拍脑袋）
+     实测那张框的 alpha 分布（frameslice.cjs）：
+       · 角占 x0..2 与 x153..155（约 3px），上下边占 y0..2 与 y42..44（约 3px）
+       · 中间大片是空的（cover 只有 0.11～0.17），所以它是一张**框**，不是底
+     slice 取 8（库的取值），边框带就得 ≥ 角宽。取 7px 时角正好整块落进边框带、
+     不会被拉伸变形；取 5px 时角会被压扁（实测过，四角发糊）。
+     ⇒ 7px 是实测出来的下限，不要再往下调。
+
+   三、必须同时去掉圆角
+     `border-radius` 会把四角的顿笔裁掉，只留下圆滑的一段 —— 那就又变回
+     "一圈均匀细线"了。库里是 `border-radius: 2px`（几乎方角），我们直接给 0。
+     方角 + 角上的顿笔，才是「板框」的样子。
+
+   四、牌面
+     · 普通键 / 危险键：一层 linear-gradient 铺满。**不要垫第二层墨底** ——
+     垫了反而把牌面弄脏。
+     · 主键：青绿三档渐变 + 深字，保持"唯一醒目"。
+     · 状态（悬停/按下）**一律不改边框**，只改牌面与外发光。
+
+   五、特异性
+     仍然沿用四个 `:not()`（把基线抬到 (0,4,1)），因为全站有 50 多条
+     `.xxx button { background: ... }` 会盖掉牌面。变体规则同样写满四个 not。
+     ⚠ 代价：以后新加按钮变体，要么加进豁免名单，要么照这里写满四个 not。
    ------------------------------------------------------------ */
-button {
-  background: linear-gradient(180deg, var(--btn-a) 0%, var(--btn-b) 100%);
-  border: 1px solid var(--border-gold);
+button:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  /* ⚠⚠ 2026-09-23 第六刀：牌面渐变必须按 **border-box** 定位铺满，否则牌面里会多出
+     上下两条横线（用户报的「框内还有上下2条横线」）。
+
+     病因（seam4.cjs 用 getComputedStyle 回读坐实）：
+       基线原来只有一层 `background: linear-gradient(...)`。
+       `background-origin` 默认是 **padding-box**，而 `background-clip` 默认是 border-box。
+       两个盒子不一样大（差 7px 边框带）⇒ 渐变按「内容区高度」取样、却铺满「含边框的整体」：
+         · 内容区(44px) 里渐变从顶色 64 走到底色 45（正常）
+         · 边框带那 7px 拿到的是渐变的**边缘重复色**，实测是平的 45~46
+       ⇒ 内容区顶端 64 与边框带的 45 之间出现 18.6 级的硬跳，上下各一条，就是那两条线。
+       实测：上界台阶 |y6→y7| = 18.6、下界 |y50→y51| = 18.6。
+
+     修法：把渐变改成按 **border-box** 铺（origin 与 clip 取同一个盒子），渐变从整个
+     按钮的顶走到整个按钮的底 ⇒ 边框带与内容区取值连续，台阶掉到 1.0 / 0.8。
+       另加一层**不透明墨底**垫在渐变下面（border-box），
+       免得手绘框内部半透明处透出页面底色（实测加上后带内与内容区亮度差 = 0）。
+
+     判据（seam4.cjs 的数字）：台阶 ≤3 才算过；现状 18.6 不合格。 */
+  background-image: linear-gradient(180deg, var(--btn-a) 0%, var(--btn-b) 100%);
+  background-color: var(--sm-ink-base);
+  background-origin: border-box;
+  background-clip: border-box;
+  /* ⚠⚠ **按钮不带水墨边框**（范围＝按钮＋输入框＋勾选框）。
+
+     只写 `border-image: none` 就够，别再动 border 宽度：
+       · border 仍是 `7px double transparent` —— 边框带还占着那 7px，
+         所以**外框尺寸一点不变**，全站十几处 min-height / 布局不用重算；
+       · 不绘制手绘笔锋；牌面渐变按 border-box 铺（见上面那两条 background-origin / background-clip），
+         于是它自然铺到外沿，按钮变成一块纯粹的牌面。
+     ⇒ 现在按钮**没有边线**。若日后觉得太糊看不出边界，正解是给一条 1px 的
+        `border` 并把丢掉的 12px 补进 padding/min-height（**不是**把 7px 直接改小）。
+
+     ⚠ 不要再套 `border-image: var(--sm-frame) 8 / 7px / 0 stretch`。
+     ⚠⚠ 别顺手把 `border: 7px` 改成 1px：边框带一薄，按钮立刻矮 12px、窄 12px，
+        `.splash .menu-list`、`.step-nav`、`.tabs`、`.seg-tabs`、`.dim-scale`…
+        十几条 min-height 全得跟着改，还得逐页回归。
+     ⚠⚠⚠ 下拉的 `border` 那一行**必须留着**：
+        删掉之后按钮会退回 theme.css 里 `button { border: 1px solid … }`，
+        边框带变 1px、**尺寸悄悄缩了 12px**，而「按钮上没有 border-image」这条断言
+        照样全绿（`border-image` 默认就是 none ⇒ **否定式断言空过**）。
+        实机探针 slider-verify.cjs 是拿「边框带是否仍为 7px」当**肯定式前置闸门**才抓出来的。 */
+  border: 7px double transparent;
+  border-image: none;
+  border-radius: 0;
   color: var(--text);
-  box-shadow: inset 0 1px 0 rgba(214, 186, 110, 0.13), 0 1px 2px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
   font-family: var(--font-serif);
   letter-spacing: 0.5px;
+  /* 牌面与边框之间留一点呼吸，免得文字顶到笔锋上 */
+  padding-left: 14px;
+  padding-right: 14px;
 }
-button:hover:not(:disabled) {
-  background: linear-gradient(180deg, var(--btn-hover-a) 0%, var(--btn-hover-b) 100%);
-  border-color: var(--gold-dim);
+/* ⚠ 淡墨的框是同一张纯黑图，纸上会显重 ⇒ 用 filter 提亮成墨青灰。
+   用 filter 而不是换素材，是因为它只改亮度、保留 alpha 的浓淡起伏。
+   挂在按钮上会连带影响里面的文字，所以只挂在"有牌面"的按钮上时
+   要排除文字：换用 `border-image` 的替代 —— 这里改用 --sm-frame-ink 变量，
+   由主题给不同的值（见下）。 */
+button { font-family: var(--font-serif); letter-spacing: 0.5px; }
+/* 变体清单（都必须与基线同宽，否则压不过它）：
+     · hover / active
+     · .primary / .primary:hover
+     · .danger / .danger:hover
+   ⚠ 以下类被基线排除了，各自有独立样式，**不要**给它们加边框：
+     .ghost（幽灵键，无框）· .tabs / .seg-tabs（标签页，只有下划线）
+     · .turn-ctx-menu（右键菜单行，纯文字） */
+button:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs):hover:not(:disabled) {
+  /* ⚠ origin/clip 必须跟基线一致，否则悬停时那两条横线又冒出来（见基线的第六刀注释）。 */
+  background-image: linear-gradient(180deg, var(--btn-hover-a) 0%, var(--btn-hover-b) 100%);
+  background-color: var(--sm-ink-base);
+  background-origin: border-box;
+  background-clip: border-box;
   color: var(--gold);
-  box-shadow: inset 0 1px 0 rgba(214, 186, 110, 0.22), 0 0 14px rgba(206, 176, 104, 0.16);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 0 14px rgba(154, 206, 196, 0.16);
 }
 button:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
 button:disabled { opacity: 0.36; }
 
-button.primary {
-  background: linear-gradient(180deg, var(--gold-btn-a) 0%, var(--gold-btn-b) 52%, var(--gold-btn-c) 100%);
-  border-color: var(--gold-dark);
+/* ------------------------------------------------------------
+   「注入顺序」里那一排小箭头（.io-mv）：真正的 22×22 紧凑牌面
+   ------------------------------------------------------------
+   为什么必须在这里再写一遍，而不是靠 theme.css 的 `.io-mv`：
+     上面那条基线 button 规则的特异性是 (0,4,1)，它带了
+       border: 7px double transparent;   padding: 0 14px;
+     而 theme.css 的 `.io-mv { width: 22px; min-width: …; padding: 0 }` 只有 (0,1,0)。
+     在全局 `* { box-sizing: border-box }` 下，指定宽度**压不过左右内边距**：
+       14 + 14(padding) + 7 + 7(border) = 42px  ← 实际生效值
+     于是 theme.css 里那两行 `width: 22px / padding: 0` 完全是死的。
+
+   实测（iowidth.cjs，2026-09-24，1500×940）：
+     · 箭头按钮计算宽度 = 42px（.io-mv 的 22px 被钳掉）；
+     · 4 个箭头占掉 174px，252.7px 的行只剩 **54.7px** 给标题；
+     · 标题需要 75.8 ~ 101.8px ⇒ 14 条区块标题里 **7 条**被省略号截断。
+   注意这是**宽度不够**，不是字号问题：`世界书 · 恒定条目` 要 101.8px。
+
+   所以这里用同级别的四个 :not() 写一遍，把尺寸真正定回 22px。
+   只改尺寸/边框粗细与字距，**牌面渐变与配色仍走基线**，观感与别处一致。
+   ------------------------------------------------------------ */
+button.io-mv:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  width: 22px; min-width: 22px;
+  height: 22px; min-height: 22px;
+  padding: 0;
+  border-width: 1px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0;
+  box-shadow: none;
+}
+
+button.primary:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  /* ⚠ 同基线：渐变按 border-box 铺，否则上下两条横线（第六刀）。 */
+  background-image: linear-gradient(180deg, var(--gold-btn-a) 0%, var(--gold-btn-b) 52%, var(--gold-btn-c) 100%);
+  background-color: var(--sm-ink-base);
+  background-origin: border-box;
+  background-clip: border-box;
   color: var(--on-gold);
   font-weight: 700;
-  text-shadow: 0 1px 0 rgba(255, 246, 218, 0.38);
-  box-shadow: inset 0 1px 0 rgba(255, 250, 226, 0.55), 0 2px 10px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 0 rgba(240, 250, 235, 0.32);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
 }
-button.primary:hover:not(:disabled) {
-  background: linear-gradient(180deg, var(--gold-btn-hi-a) 0%, var(--gold-btn-hi-b) 52%, var(--gold-btn-hi-c) 100%);
+button.primary:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs):hover:not(:disabled) {
+  background-image: linear-gradient(180deg, var(--gold-btn-hi-a) 0%, var(--gold-btn-hi-b) 52%, var(--gold-btn-hi-c) 100%);
+  background-color: var(--sm-ink-base);
+  background-origin: border-box;
+  background-clip: border-box;
   color: var(--on-gold-strong);
-  box-shadow: inset 0 1px 0 rgba(255, 250, 226, 0.6), 0 4px 18px rgba(206, 176, 104, 0.3);
+  box-shadow: 0 4px 18px rgba(154, 206, 196, 0.3);
 }
 button.ghost {
-  background: transparent; border-color: var(--border); color: var(--text-dim);
+  background: transparent; color: var(--text-dim);
+  border-color: var(--border);
+  border-image: none;
   box-shadow: none;
 }
 button.ghost:hover:not(:disabled) {
-  background: rgba(214, 186, 110, 0.09); border-color: var(--gold-dark); color: var(--gold);
+  background: rgba(154, 206, 196, 0.09); border-color: var(--gold-dark); color: var(--gold);
 }
-button.danger {
-  background: linear-gradient(180deg, var(--btn-danger-a) 0%, var(--btn-danger-b) 100%);
-  border-color: rgba(224, 132, 104, 0.5); color: var(--red);
+/* danger 同理：牌面染红，边框仍是同一张手绘框，不把框染红。 */
+button.danger:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  /* ⚠ 同基线：渐变按 border-box 铺，否则上下两条横线（第六刀）。 */
+  background-image: linear-gradient(180deg, var(--btn-danger-a) 0%, var(--btn-danger-b) 100%);
+  background-color: var(--sm-ink-base);
+  background-origin: border-box;
+  background-clip: border-box;
+  color: var(--red);
 }
-button.danger:hover:not(:disabled) {
-  border-color: var(--red); color: var(--danger-text);
-  box-shadow: 0 0 14px rgba(224, 132, 104, 0.2);
+button.danger:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs):hover:not(:disabled) {
+  color: var(--danger-text);
+  box-shadow: 0 0 14px rgba(232, 148, 120, 0.2);
+}
+/* ---- 小号按钮（.small）改走界面字体，摆脱 12px 楷体 ----
+   同上：楷体是单字重，12px 下笔画发虚（用户 2026-09-24：「字太细太小」）。
+   fontPrefs.js 里「界面字体」槽本来就写着管"菜单、按钮、列表、表单"，按钮该用它。
+   ⚠ 两条选择器是一组：第二条抄足 :not 链是为了压过 §4 基线里那句 font-family: var(--font-serif)（(0,4,1)）；
+     第一条是为了管住基线**不管**的 .ghost 小按钮（它的字体来自 `button` 那条 (0,0,1)）。
+   ⚠ 只动 .small —— 大按钮的楷体是皮肤招牌感，且字号够大不发虚，别一把刷。 */
+button.small,
+button.small:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  font-family: var(--font-ui);
 }
 button:focus-visible, input:focus-visible, textarea:focus-visible,
 select:focus-visible, [tabindex]:focus-visible {
@@ -419,25 +742,163 @@ select:focus-visible, [tabindex]:focus-visible {
 }
 
 /* ------------------------------------------------------------
-   5. 表单：内凹深底 + 金边聚焦
+   5. 表单：宣纸内凹底 + 同一张手绘框
    ------------------------------------------------------------ */
+/* 与按钮同源：用完整四边框，不"垫墨底 + 拉横线"。
+   ⚠ 输入框的边框**不能**也给 7px —— 输入框里要塞文字，7px 的框会把可写区
+     压掉一大圈。实测 7px 下 36px 高的输入框只剩 22px 内容高，太挤。
+     这里给 5px，并相应把 slice 降到 6（边框带 ≥ 角宽即可）。
+   ⚠ 聚焦/悬停一律不改边框，靠外发光表示状态 —— 换边框会牵动尺寸。 */
+/* ⚠ 输入框同样不带水墨边框（与按钮一致）。
+   同按钮的做法：只写 `border-image: none`，**保留 5px 的边框带** ⇒ 尺寸不变、布局不动；
+   输入框的底是单色 `--surface-well`，边框带一透明，底色就自然铺满整个盒子。
+   上面那段「7px 会压掉可写区」的实测仍然成立，所以**不要**去改宽度。 */
 input, textarea, select {
   background: var(--surface-well);
-  border: 1px solid var(--border);
+  /* ⚠ 单色（不是渐变）⇒ 不存在 origin/clip 错位问题，无需第六刀那组属性。 */
+  /* 2026-09-24：原为 `5px double transparent` —— 在皮肤里等于**没有可见边框**，只剩一圈内阴影，
+     玩家看不出哪里能填（用户反馈"选项框、储物袋里面的框都不大明显"）。
+     改成 2px 实线金边：可见性大增；而且可写区反而从 12px 宽到 18px
+     （theme.css 基线 min-height 36px 撑着，控件总高不变，只是里头松快了）。 */
+  border: 2px solid var(--border-gold);
+  border-image: none;
+  border-radius: 0;
   color: var(--text);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
 }
 input:hover:not(:focus):not(:disabled), textarea:hover:not(:focus), select:hover:not(:focus) {
-  border-color: var(--gold-dark);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(154, 206, 196, 0.14);
 }
 input:focus, textarea:focus, select:focus {
-  border-color: var(--gold-dim);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 3px rgba(206, 176, 104, 0.16);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.36), 0 0 0 3px rgba(154, 206, 196, 0.2);
 }
 ::placeholder { color: var(--text-faint); }
 select option { background: var(--bg-2); color: var(--text); }
-input[type="checkbox"], input[type="radio"] { accent-color: var(--gold-dim); box-shadow: none; }
+/* 勾选框 / 单选框：库原件的做法是**一张 48×48 的手绘方框**（frame-checkbox.webp，
+   slice 6 / border 4px），选中时框内填色、压一枚勾。
+   （原来只有一句 accent-color，等于没管过长相。）
+   实况：勾选框在「故事设定」等页真有（已实机量到 appearance:none ＋ 手绘框）；
+   单选框在本项目里**没有任何地方渲染**（源码零命中，产物里那 6 处 "radio"
+   全是 React 自己的受控输入逻辑，不是本项目 UI）⇒ 下面 radio 那几行同属死样式，
+   一并留着，但没经过实机验证。 */
+input[type="checkbox"], input[type="radio"] {
+  accent-color: var(--gold-dim);
+  box-shadow: none;
+}
+input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none;
+  width: 19px; height: 19px; min-height: 19px;
+  /* ⚠⚠ 必须有这一行，否则上面那句 `width: 19px` 是**假生效**。
+     通用输入框基线（`input, textarea, select`）给所有 input 留了 `padding: 6px 11px`，
+     而全站 `box-sizing: border-box`：盒子最小不能小于「内边距＋边框」＝11+11+1+1＝24px，
+     于是 19px 被**撑成 24px**（2026-09-23 第八刀实测：padding 清零 → 19.0，恢复 → 24.0；
+     浏览器自己的层叠查询确认胜出的就是 `width:19px`，不是被谁覆盖，是**被盒子下限顶住**）。
+     内边距对勾选框本来也没意义（框里不塞字），清零后 19px 才是真的 19px，
+     框内的勾也才回到正中（改前框宽 24，勾按 19 的算法摆，看着偏左）。 */
+  padding: 0;
+  /* ⚠ 2026-09-23 第八刀：手绘框（frame-checkbox.webp）撤掉。
+     ⚠⚠ 勾选框**不能像按钮那样只把 border-image 关掉** —— 它的边框是 4px 全透明，
+        手绘框一撤，未选中的勾选框就**彻底看不见了**（既没边框也没底色）。
+        所以这里换成一条**真的 1px 边**，尺寸由上面那句 padding:0 兜住。 */
+  border: 1px solid var(--border-gold);
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer; position: relative;
+  transition: background .14s var(--ease), box-shadow .14s var(--ease);
+}
+input[type="checkbox"]:checked {
+  /* 选中＝框内填青绿（与未选时只有手绘空框区别明显）。
+     ⚠ 这里只写一层背景就够了 —— **不要再给边框垫墨底**。 */
+  background: linear-gradient(var(--gold-dim), var(--gold-dim));
+}
+/* 勾：用两条斜线画，比打字符号稳定（不依赖字体里有没有 ✓） */
+input[type="checkbox"]:checked::after {
+  content: '';
+  /* ⚠ 第八刀：边框 4px → 1px，`left/top` 各 +3 是为了让勾**留在原来的绝对位置**上。
+     ⚠ 另加 `padding: 0` 之后，19px 盒里的可定位区是 17×17（19 减去左右各 1px 边框），
+     勾占 left 7~11 / top 4~13 ⇒ 换算到外缘是「左 8 右 7、上 5 下 5」，视觉上居中。
+     ⚠ 改前盒子被内边距撑到 24px 宽，勾仍按 19px 的算法摆 ⇒ 亮着看是**偏左**的，
+     这也是上面那句 `padding: 0` 的另一个理由。 */
+  position: absolute; left: 7px; top: 4px;
+  width: 4px; height: 9px;
+  border: solid var(--on-gold);
+  border-width: 0 2px 2px 0;
+  transform: rotate(43deg);
+}
+input[type="radio"] {
+  appearance: none; -webkit-appearance: none;
+  width: 15px; height: 15px; min-height: 15px;
+  border: 1px solid var(--border-gold);
+  border-radius: 50%;
+  background: var(--surface-well);
+  cursor: pointer; position: relative;
+}
+input[type="radio"]:checked { border-color: var(--gold-dark); }
+input[type="radio"]:checked::after {
+  content: '';
+  position: absolute; left: 3px; top: 3px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--gold-dim);
+}
 input[type="color"] { padding: 2px; background: var(--bg-2); }
+
+/* ------------------------------------------------------------
+   5b. 滑动条（滑块）：照 shuimo 的 <m-slider> 重做
+   ------------------------------------------------------------
+   2026-09-23 第八刀。用户原话：「把所有滑动条改成 shuimo 那个滑动条」
+   （参考 https://shuimo.design/slider，也出现在 /dialog 那一页的侧栏菜单里）。
+   参考实现拆开就三层，照抄：
+     · 未选段 ＝ 一支笔触，**30% 淡墨**满铺
+     · 已选段 ＝ **同一支**笔触、**满墨**，宽度跟着当前值走（两层叠加即成「推进填充」）
+     · 手柄  ＝ 一颗墨点（黑球带一点高光）
+   实测依据（make-slider-assets.cjs / extract-shuimo.cjs）：
+     · 库里的 CSS 是 `.m-scroll…` 那类风格：track 用 `:before` 铺 0.3 透明度的同一张图，
+       `.m-slider-runway` 铺 1.0 的那张 —— 所以"已选/未选"差的就是**同一张图的透明度**。
+     · 素材是 webp，且**白底不透明**（实测 alpha 全 255、四角纯白 255,255,255）。
+       不能直接当背景用在深色主题上 ⇒ 已换算成「黑＝有墨」的 alpha 版，
+       并按主题各出一份（浓墨主题用浅墨，黑墨落在深底上等于看不见）。
+
+   ⚠ `input, textarea, select` 那条基线对 range 也生效（min-height 34px、padding、
+     5px 边框带、底色）。**必须逐条清掉**，否则轨道会被挤在 34px 盒子的顶上、
+     与手柄对不齐 —— 这类"样式写了却不生效"的坑，先怀疑基线而不是自己的规则。
+   ⚠ 原生 range 只有 `::-webkit-*` 伪元素可改；本机跑 Chrome/Edge，够用。
+     `::-moz-range-*` 没写（项目其他滚动条/勾选框也只写 webkit 一套）。
+   ------------------------------------------------------------ */
+input[type="range"] {
+  appearance: none; -webkit-appearance: none;
+  min-height: 20px; height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none; border-image: none;
+  box-shadow: none;
+  /* --fill：由页面按当前值下发（0~1 的无单位数）。没下发就当作最小值。 */
+  --fill: 0;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 20px;
+  border-radius: 20px;
+  /* ⚠ 图层顺序＝从上到下，所以**满墨在前**（盖住淡墨）。 */
+  background-image: var(--sm-slider-fill), var(--sm-slider-track);
+  background-repeat: no-repeat, no-repeat;
+  background-position: left center, left center;
+  /* ⚠⚠ 纵向取 **12px**，不是 100%（20px）。
+     素材原图 1210×74，库里按 `background-size: var(--m-slider-w) auto` 画 200px 宽
+     ⇒ 实际渲染高度 = 74 × 200/1210 ≈ **12.2px**，比 20px 的手柄明显细一截，
+     手柄才是"顶出来一颗墨点"的样子（参考图里笔触只占墨点高度的六成）。
+     若拉满 20px，笔触就和手柄一样高、**手柄直接糊进墨色里看不见了**。
+     ⚠ 横向取 100%（满宽、不重复）：素材宽度固定的话，宽滑块会把笔触平铺好几遍，
+       两头会看到重复的收锋。拉伸成一支长笔更好看。
+     ⚠ 手柄 20px 宽、行程只有 (100% - 20px)，已选段也要减 20px 才对得上，
+       否则两端会差出最多 10px，看着像"墨色跑到墨点前面/后面去了"。 */
+  background-size: calc(var(--fill) * (100% - 20px)) 12px, 100% 12px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none; -webkit-appearance: none;
+  width: 20px; height: 20px;
+  border: none; border-radius: 0;
+  background: var(--sm-slider-knob) center / 100% 100% no-repeat;
+  margin-top: 0;                    /* 轨道与手柄同为 20px，不需要纵向偏移 */
+}
 
 /* ------------------------------------------------------------
    6. 卡片 / 分区标题
@@ -446,34 +907,45 @@ input[type="color"] { padding: 2px; background: var(--bg-2); }
   background-color: var(--bg-1);
   background-image: linear-gradient(180deg, var(--surface-card-a) 0%, var(--surface-card-b) 100%);
   border: 1px solid var(--border);
-  box-shadow: inset 0 0 0 1px rgba(206, 176, 104, 0.07), 0 1px 3px rgba(0, 0, 0, 0.5);
+  border-image: var(--sm-line-x) 2 / 1px / 0 stretch;
+  box-shadow: inset 0 0 0 1px rgba(154, 206, 196, 0.06), 0 1px 3px rgba(0, 0, 0, 0.45);
 }
+/* ⚠ 卡片的边框刻意**不**垫墨底：卡片面大，四周一条墨线会很重、像贴了黑框。
+   这里笔触只是"让边线不那么直"，--border 的半透明色正合适。
+   按钮/输入框是「一块要突出的牌子」才需要墨底。 */
 .card.selectable:hover {
   border-color: var(--gold-dark);
-  box-shadow: inset 0 0 0 1px rgba(206, 176, 104, 0.14), 0 6px 22px rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(154, 206, 196, 0.14), 0 6px 22px rgba(0, 0, 0, 0.55);
 }
 .card.selected {
   border-color: var(--gold-dim);
   background-image: linear-gradient(180deg, var(--surface-card-hi-a) 0%, var(--surface-card-hi-b) 100%);
-  box-shadow: 0 0 0 1px rgba(214, 186, 110, 0.45), inset 0 0 22px rgba(214, 186, 110, 0.06);
+  box-shadow: 0 0 0 1px rgba(154, 206, 196, 0.42), inset 0 0 22px rgba(154, 206, 196, 0.06);
 }
-/* 旧版这里覆盖的是白色高光，深底上要换成金光 */
+/* 覆盖的是淡墨光（深底上不要用白色高光）*/
 .card::before {
-  background: linear-gradient(180deg, rgba(214, 186, 110, 0.09), transparent 32%);
+  background: linear-gradient(180deg, rgba(154, 206, 196, 0.09), transparent 32%);
 }
 .card .name { color: var(--gold); }
 .mod-tag { background: var(--bg-2); border-color: var(--border); color: var(--text-dim); }
-.mod-tag.pos { color: var(--green); border-color: rgba(147, 194, 110, 0.45); background: var(--green-bg); }
-.mod-tag.neg { color: var(--red); border-color: rgba(224, 132, 104, 0.45); background: var(--red-bg); }
+.mod-tag.pos { color: var(--green); border-color: rgba(168, 207, 138, 0.45); background: var(--green-bg); }
+.mod-tag.neg { color: var(--red); border-color: rgba(232, 148, 120, 0.45); background: var(--red-bg); }
 
-/* 分区小标题：行楷 + 金竖条 + 左浓右淡的金雾 */
-.section > h3, .section-head-row > h3 {
-  background: linear-gradient(90deg, rgba(214, 186, 110, 0.17), rgba(214, 186, 110, 0) 72%);
+/* 分区小标题：楷体 + 墨青竖笔 + 整条墨雾底衬，让每个模块一眼分开。
+   竖笔那一条用**手绘竖向笔触**（不是一条实色边）——
+   标题栏是全页出现频率最高的元素之一，它带不带笔锋，整页气质差很多。
+   ⚠ 渐变 + border-image 必须写 background-origin/clip: border-box，
+     否则底衬从 padding-box 起算，与左边那条笔触差 3px，看得出台阶。 */
+.section > h3, .section > h4, .section-head-row > h3 {
+  background: linear-gradient(90deg, rgba(154, 206, 196, 0.30), rgba(154, 206, 196, 0.11) 88%);
+  background-origin: border-box;
+  background-clip: border-box;
   border-left: 3px solid var(--gold-dim);
+  border-image: var(--sm-line-y) 1 / 0 0 0 3px / 0 stretch;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   color: var(--gold);
   font-family: var(--font-serif);
-  font-weight: 500;
+  font-weight: 700;
   letter-spacing: 2.5px;
 }
 .fold-card > .fold-head h4 { color: var(--gold); font-family: var(--font-serif); }
@@ -516,7 +988,14 @@ input[type="color"] { padding: 2px; background: var(--bg-2); }
   border-bottom: 1px solid var(--border-gold);
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
 }
-.top-bar h1 { font-family: var(--font-serif); letter-spacing: 6px; }
+/* ⚠⚠ 游戏内顶栏那四个字「造化玉碟」与进入页面的大标题用**同一支封面字**。
+   封面字是精确子集（只含首页实际用字），「造化玉碟」四个字本来就在子集里（见 §0），
+   所以这里不会缺字回退成楷体。
+   ⚠ 字重必须**显式写 400**：本文件前面那条 `h1, h2 { font-weight: 600 }` 会在字体只有
+     一档时触发浏览器的**合成加粗**，点阵字被糊成一团（进入页面的大标题同样这么处理）。
+   ⚠ 字号提到 20px：点阵字在 17px 下每个点只有 1px 出头，笔画会散开、认不出字形。
+     顶栏高度由 34px 的按钮撑着，h1 提到 20px 不会把顶栏撑高。 */
+.top-bar h1 { font-family: var(--font-cover); font-weight: 400; font-size: 20px; letter-spacing: 6px; }
 .top-bar .save-name { color: var(--text-dim); }
 .save-state { color: var(--green); }
 .save-state.pending { color: var(--gold-dim); }
@@ -530,40 +1009,404 @@ input[type="color"] { padding: 2px; background: var(--bg-2); }
   border-bottom: 1px solid var(--border);
 }
 
-/* 左侧主导航：木牌列 */
+/* ------------------------------------------------------------
+   左侧主导航：一根挂绳，竹简一片片系在上面
+   ------------------------------------------------------------
+   ⚠⚠ 2026-09-23 第四版（用户：「把左栏的木牌改成竹简」）。
+   左栏是**竹简**（不是木牌）。
+   结构与挂法固定（主绳 .nav-cord + 牌顶挂结 .nav-knot + 牌面 .nav-item），
+   三件东西缺任何一件，都会退回成"一块黄绿的色块"：
+
+     1) 纹理方向 —— 这是木与竹**最本质的区别**，也是这次唯一能靠数字判定的东西：
+          木头是树干切的板 ⇒ 纹路**竖着**走；
+          竹片是竹子顺纹劈的 ⇒ **纤维沿竹片长度方向**走 ⇒ 在横着的牌面上是**横纹**。
+        所以下面那两层 repeating-linear-gradient 的**角度从 90deg 换成了 180deg**。
+        ⚠ 这条也是验证器的主判据（ggshot/bamboo.cjs 量"水平梯度能量 vs 竖直梯度能量"），
+          改回去会让验证器立刻翻红 —— 这是设计上的保险，不是巧合。
+
+     2) 弧面受光 —— 木牌是**平板**，受光一路从上亮到下（单向下坡）；
+          竹片是**弧面**（半圆柱），上下两条长边都往背光处拐
+          ⇒ 最亮的一条在**偏上处**，顶边与底边都偏暗。
+        ⚠ 所以最上面那层渐变的形状是"顶暗→偏上亮→底暗"，不是"顶亮→底暗"。
+
+     3) 竹节 —— 竹子一节一节，这是竹简的招牌。木牌上没有任何节点，
+        现在每片右端附近多一道细环（.nav-item::after，见下面 §4 之后那一条）。
+        ⚠ 位置是**被文字逼出来的**：实测牌子内 42~96px 是文字（最长四字也单行显示），
+          右边只剩 96~116px 这一点空档 ⇒ 竹节只能放在靠右端（101~110px）。
+          同理顶部 1~12px 是内边距、完全无字 ⇒ 验证器把**纤维测量窗口**放在那里
+          （局部 x 5~44、y 3~11），并自证"窗口里没有文字"。
+
+   【还留在原地的两件】主绳 .nav-cord（麻绳绞股斜纹）与牌顶挂结 .nav-knot ——
+   竹简本来也是用绳编连的，绳子不用换材质。（注：老注释里提过的 .nav-tie 早已不存在。） */
+
+/* 麻绳色：浓墨（深青竹壁）上偏灰黄，淡墨（宣纸）上偏赭。
+   竹色 --bam-* 两套主题各一套：见本段末尾 html[data-theme="light"] 那一条。 */
 .game-nav {
+  --cord: rgba(168, 142, 84, 0.55);
+  --cord-hi: rgba(214, 190, 130, 0.42);
+  --bam-a: #6f7038;         /* 竹片受光面（偏上那条亮带） */
+  --bam-b: #3f4219;         /* 竹片背光面（往下渐暗） */
+  --bam-edge: #26280f;      /* 竹片两侧的端面/削边 */
+  --bam-hi: rgba(226, 232, 160, 0.26);
+  --bam-ink: #f4f0d0;       /* 竹片上的字（墨书） */
+  --cord-shadow: rgba(0, 0, 0, 0.55);
   background: linear-gradient(180deg, var(--surface-nav-a) 0%, var(--surface-nav-b) 100%);
   border-right: 1px solid var(--border-gold);
 }
-.game-nav .nav-item { color: var(--text-dim); border-radius: 3px; }
-.game-nav .nav-item:hover:not(:disabled) {
-  background: rgba(214, 186, 110, 0.1); color: var(--gold);
+
+/* 1) 主绳：竖着贯穿，斜纹做出麻绳的绞股感 */
+.game-nav .nav-cord {
+  background:
+    repeating-linear-gradient(115deg,
+      var(--cord) 0 2px,
+      var(--cord-hi) 2px 3px,
+      var(--cord) 3px 6px);
+  box-shadow: 1px 0 2px var(--cord-shadow), inset -1px 0 0 rgba(0, 0, 0, 0.35);
 }
-.game-nav .nav-item.active {
-  background: linear-gradient(90deg, rgba(214, 186, 110, 0.24), rgba(214, 186, 110, 0.05));
-  color: var(--gold);
-  box-shadow: inset 3px 0 0 var(--gold-dim), inset 0 0 20px rgba(214, 186, 110, 0.06);
+
+/* 3) 竹片本体
+   ⚠⚠⚠ 2026-09-23：这块必须用**和按钮基线同等特异性的选择器**，否则竹纹根本画不出来。
+   病因（woodwho.cjs 把命中这块牌的所有规则打出来坐实）：
+     赢家是 guigu.css 的通用按钮基线
+       `button:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs)` = **(0,4,1)**
+     而我原来写的 `.game-nav .nav-item` = **(0,2,0)** ⇒ 被压掉，
+     于是牌面拿到的是按钮的深青渐变 + frame-button 板框，**不是木头**。
+   修法：把选择器写成同样带 4 个 :not 的形态（仍为 (0,4,1)，且靠后 ⇒ 同分胜出），
+   并把背景/边框/阴影**四件套一起重声明**（任何一件漏了都会被基线捡回去）。
+   同理覆盖 active 态（polish.css 的 `.game-nav .nav-item.active` 会加金竖条）。 */
+.game-nav .nav-item:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs),
+html[data-theme="light"] .game-nav .nav-item:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  color: var(--bam-ink);
+  border-radius: 2px;
+  /* 竹面四层（从上往下画，第一层在最上面）：
+       ① 弧面受光 —— 顶边暗 / 偏上一条亮带 / 底边更暗。这是"竹片是弧面"的全部来源，
+          也是和木牌（顶亮底暗的单向下坡）**形状上**的区别所在。
+       ② 细竹纤维 ③ 粗竹纤维 —— 两层都走 180deg ⇒ 条纹是**横的**。
+          ⚠ 木牌那两层的角度是 90deg（竖纹）。这一处 90→180 就是"木变竹"。
+       ④ 底色渐变。 */
+  background-image:
+    linear-gradient(180deg,
+      rgba(0, 0, 0, 0.22) 0%,
+      rgba(0, 0, 0, 0.12) 18%,
+      rgba(255, 252, 226, 0.22) 34%,
+      rgba(255, 252, 226, 0.14) 52%,
+      rgba(0, 0, 0, 0.04) 70%,
+      rgba(0, 0, 0, 0.20) 92%,
+      rgba(0, 0, 0, 0.30) 100%),
+    repeating-linear-gradient(180deg, rgba(0, 0, 0, 0.14) 0 1px, rgba(255, 255, 255, 0) 1px 4px),
+    repeating-linear-gradient(180deg, rgba(255, 250, 214, 0.09) 0 1px, rgba(0, 0, 0, 0.0) 1px 11px),
+    linear-gradient(180deg, var(--bam-a) 0%, var(--bam-b) 100%);
+  background-color: var(--bam-b);
+  background-origin: border-box;
+  background-clip: border-box;
+  /* 削边：外侧一圈深色 + 内侧一圈浅色 = 竹片劈开后削过的立边 */
+  border: 1px solid var(--bam-edge);
+  border-image: none;
+  box-shadow:
+    inset 0 0 0 1px var(--bam-hi),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.30),
+    0 2px 3px rgba(0, 0, 0, 0.46),
+    0 1px 0 rgba(0, 0, 0, 0.66);
+  /* ⚠ 挂结要露在牌顶、竹节是 ::after 绝对定位，所以 overflow 必须是 visible。
+     2026-09-23：guigu-fx.css 里那句 `overflow: hidden` 已改掉（见该文件），
+     这里再写一遍是**双保险**，防以后有人在那边加回来。 */
+  overflow: visible;
+  transition: background-color .18s var(--ease-soft), color .18s var(--ease-soft), box-shadow .18s var(--ease-soft);
 }
+
+/* 4) 每片竹片做出细微差别
+   ------------------------------------------------------------
+   【为什么】十片用同一份竹纹 = 一眼看出是"复制粘贴的十片板"，塑料感就来了。
+   真竹简是**一根竹子不同位置劈下来的**：纤维疏密、底色深浅、竹节落在哪一节，都不一样。
+   【怎么做的】不动那四条渐变本身（动它们要重写 4 条 × 2 主题 = 8 处），
+   而是给每片设三个"取材参数"，再用 **background-position / background-size** 施加到已有纹理上
+   —— 等于"从竹子别的位置锯一片下来"：
+     --b-shift  纤维相位（⚠ 竹纤维是**横纹**，所以要沿 **y** 平移才换相位；
+                          木牌时代是沿 x 平移的 —— 角度换了，平移轴也必须跟着换）
+     --b-fiber  纤维疏密（缩放倍数，0.93~1.12 之间）
+     --b-tone   底色明暗（filter brightness，0.95~1.06）
+   数值刻意做成**不规则**的（不按奇偶交替，也不成等差数列）——
+   规整的数值会被眼睛立刻认出是"规律"，反而更假。
+   ⚠⚠ 竹节位置（--b-node）**不在这三个里面，也不逐片变化** ——
+     所有竹片的竹节位置**必须一样**，所以它只在基线那条里定义**一次**，
+     十片共用：下面十行 nth-child 里**不许出现** --b-node，否则又会变成逐片不同。
+     ⚠ 这条是把"统一"落到结构上：想改只能改一处，改不出"每片差一点"的样子来。
+   ⚠ 只动 background-position/size 与 filter，不碰 background-image 的层结构，
+     所以 origin/clip 那四条基线仍然有效（background-position 不影响盒子取色）。 */
+.game-nav .nav-item { --b-shift: 0px; --b-fiber: 1; --b-tone: 1; --b-node: 101; }
+.game-nav .nav-item:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  /* 纤维层跟着取材参数走（平移用 y）；最底那层纯色渐变不受 background-position 影响，
+     故把"明暗"单独交给 filter 去做（整片一起亮/暗，符合"这片竹子颜色深一点"）。 */
+  background-position: 0 0, 0 var(--b-shift), 0 var(--b-shift), 0 0;
+  background-size: auto, calc(4px * var(--b-fiber)) auto, calc(11px * var(--b-fiber)) auto, auto;
+  filter: brightness(var(--b-tone));
+}
+/* 十片竹片各自的取材参数（不规则；四个参数的取值逐片唯一） */
+/* 十片竹片各自的取材参数（不规则；三个参数的组合逐片唯一）
+   ⚠ 只有 --b-shift / --b-fiber / --b-tone 三项 —— --b-node 不在这里，它是全列统一的（见上）。 */
+.game-nav .nav-item:nth-child(1)  { --b-shift:  0px; --b-fiber: 1.00; --b-tone: 1.00; }
+.game-nav .nav-item:nth-child(2)  { --b-shift: -2px; --b-fiber: 1.09; --b-tone: 0.97; }
+.game-nav .nav-item:nth-child(3)  { --b-shift:  1px; --b-fiber: 0.93; --b-tone: 1.04; }
+.game-nav .nav-item:nth-child(4)  { --b-shift: -1px; --b-fiber: 1.04; --b-tone: 0.95; }
+.game-nav .nav-item:nth-child(5)  { --b-shift:  2px; --b-fiber: 0.97; --b-tone: 1.03; }
+.game-nav .nav-item:nth-child(6)  { --b-shift: -3px; --b-fiber: 1.12; --b-tone: 0.99; }
+.game-nav .nav-item:nth-child(7)  { --b-shift:  1px; --b-fiber: 0.95; --b-tone: 1.06; }
+.game-nav .nav-item:nth-child(8)  { --b-shift:  0px; --b-fiber: 1.06; --b-tone: 0.96; }
+.game-nav .nav-item:nth-child(9)  { --b-shift: -2px; --b-fiber: 1.02; --b-tone: 1.02; }
+.game-nav .nav-item:nth-child(10) { --b-shift:  2px; --b-fiber: 0.99; --b-tone: 0.98; }
+/* 选中态要盖回正常的明暗（否则选中片被 filter 压暗看不出被"提起来"） */
+.game-nav .nav-item.active:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  filter: brightness(1.10);
+}
+.game-nav .nav-item:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs):hover:not(:disabled) {
+  color: #fffbe0;
+  /* 悬停＝这片竹简被光照了一点：弧面形状不变（还是顶暗-偏上亮-底暗），
+     只把亮带加强、暗边收窄。⚠ 纤维层必须仍然是 180deg，否则悬停时纹理方向会当场翻成木头的。 */
+  background-image:
+    linear-gradient(180deg,
+      rgba(0, 0, 0, 0.16) 0%,
+      rgba(0, 0, 0, 0.06) 18%,
+      rgba(255, 253, 232, 0.30) 34%,
+      rgba(255, 253, 232, 0.22) 52%,
+      rgba(0, 0, 0, 0.02) 70%,
+      rgba(0, 0, 0, 0.14) 92%,
+      rgba(0, 0, 0, 0.24) 100%),
+    repeating-linear-gradient(180deg, rgba(0, 0, 0, 0.16) 0 1px, rgba(255, 255, 255, 0) 1px 4px),
+    repeating-linear-gradient(180deg, rgba(255, 250, 214, 0.11) 0 1px, rgba(0, 0, 0, 0.0) 1px 11px),
+    linear-gradient(180deg, var(--bam-a) 0%, var(--bam-b) 100%);
+  border-color: var(--bam-edge);
+  box-shadow:
+    inset 0 0 0 1px rgba(240, 244, 178, 0.40),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.26),
+    0 3px 5px rgba(0, 0, 0, 0.55),
+    0 1px 0 rgba(0, 0, 0, 0.7);
+}
+/* 选中＝这片竹简被"提"起来一点：竹面转亮、投影拉长，内圈换成一道暖色立边表示"当前在这片" */
+.game-nav .nav-item.active:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  color: #fffce8;
+  font-weight: 600;
+  background-image:
+    linear-gradient(180deg,
+      rgba(0, 0, 0, 0.10) 0%,
+      rgba(255, 255, 245, 0.06) 16%,
+      rgba(255, 255, 240, 0.36) 34%,
+      rgba(255, 255, 240, 0.26) 52%,
+      rgba(255, 252, 230, 0.04) 70%,
+      rgba(0, 0, 0, 0.10) 92%,
+      rgba(0, 0, 0, 0.20) 100%),
+    repeating-linear-gradient(180deg, rgba(0, 0, 0, 0.15) 0 1px, rgba(255, 255, 255, 0) 1px 4px),
+    repeating-linear-gradient(180deg, rgba(255, 252, 226, 0.13) 0 1px, rgba(0, 0, 0, 0.0) 1px 11px),
+    linear-gradient(180deg, #85873f 0%, var(--bam-b) 100%);
+  border-color: var(--bam-hi);
+  box-shadow:
+    inset 0 0 0 1px rgba(248, 240, 190, 0.50),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.22),
+    0 4px 7px rgba(0, 0, 0, 0.60),
+    0 1px 0 rgba(0, 0, 0, 0.7);
+}
+/* 旧的「金竖条长出来」在木牌上出戏（像牌面裂了），屏蔽掉；改用牌面自身高光表达悬停。
+   ⚠⚠ 这里**不要写** `content:none` —— 写了也没用，反而误导。
+   实测（diagbar.cjs 打出全部命中规则）：
+     · 木牌自身的 box-shadow 在 :hover / .active 两处都已整条重写、不含 inset 左条
+       ⇒ polish.css 的 `inset 3px 0 0` 被权重压住，**静态下不生效**；
+     · 真正会画出竖条的是 guigu-fx.css 里那条 `.game-nav .nav-item::before`
+       （该文件后加载 ⇒ 同权重时后者胜），所以**关闭动作放在 guigu-fx.css 里就地做**。
+   结论留在此处备查，避免以后有人又跑来这里加一条没用的 content:none。 */
+
+/* 2) 牌顶挂结：绳子在牌子顶端勒出的一小团绳疙瘩（.nav-knot）。
+   ⚠⚠ 2026-09-23 第三版（用户：「木牌上不要有黑点」）：
+   牌顶不凿孔：深色内凹的圆点在牌面上会读成一颗**黑点**。只有挂结本身，
+   绳子的"挂"由主绳 + 这团结 + 牌面投影一起表达，牌面上没有任何圆点。
+   结的形：横向椭圆（比绳宽、比绳矮），两端自然收圆；上缘亮下缘暗＝一小团绳的受光；
+   中间一道浅横纹让它读成"结"而不是"一个椭圆点"。 */
+.game-nav .nav-knot {
+  position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
+  width: 11px; height: 4.5px;
+  border-radius: 50%;
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0) 0%,
+      var(--cord-hi) 22%,
+      var(--cord) 58%,
+      rgba(0, 0, 0, 0.34) 100%);
+  box-shadow:
+    0 1px 1.5px var(--cord-shadow),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+/* 结在绳上"勒"出的两道浅横纹 —— 这一笔让它读成"结"而不是"一个椭圆点" */
+.game-nav .nav-knot::after {
+  content: ''; position: absolute; left: 1.5px; right: 1.5px; top: 45%;
+  height: 1px;
+  background: linear-gradient(90deg,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, 0.30) 18%,
+    rgba(0, 0, 0, 0.30) 82%,
+    rgba(0, 0, 0, 0) 100%);
+}
+
+/* 3) 竹节：竹子一节一节，这是竹简的招牌（木牌上完全没有这个特征）。
+   ⚠⚠ 位置是**被文字逼出来的**，不能随便挪：
+     实测（bamboo.cjs 把每片牌与文字/图标/挂结的矩形都打出来）牌面 116×45，局部坐标：
+       文字 .nav-label  x 41~95、y 15.7~31.3 —— 四字条目如「剧情演化」也是**单行**显示，不折行
+       图标 .nav-icon   x 14~35、y 13~34
+       挂结 .nav-knot   x 51.5~62.5、y 5~9.5
+     ⇒ 横向只剩右边 96~115 这点空档，竹节只能落在那里。
+   ⚠⚠ 位置取 **101，十片全一样**（用户 2026-09-23 明确要求「竹节位置必须一样」）。
+     为什么是 101 而不是别的数：这一带上下都有边，取中点才留得住余量 ——
+       · 往左：文字右缘在局部 95 ⇒ 101 时竹节占 border-box 局部 102~107，左边还剩 7px
+       · 往右：竹片内侧有一圈 `inset 0 0 0 1px var(--bam-hi)` 的亮线（占局部 113~114）
+               ⇒ 右边还剩 6px，不会和那道亮线糊成一条
+     ⚠ 这条余量有实测依据：竹节位置一旦落到 109，
+       竹节正好压在 113~114 那道内亮线上，放大看图（shots-bamboo/node-i1.png）
+       是"一道粗痕贴着右缘"、而别的片是"明显内缩的一道细箍" —— 看着像不一致，
+       用户就是照这个提的意见。
+     ⚠ 顶部 1~12px 是内边距（留给挂结）、完全无字 —— 验证器的**纤维测量窗口**就放在那里
+       （局部 x 5~44 / y 3~11）。挪动竹节或改内边距之前，先确认没把那个窗口踩掉。
+   形：**两道亮脊夹一道暗沟**（亮-暗-亮的对称三带），宽度 5px。
+   ⚠⚠ 这一条的形状改过一版，原因值得记：第一版是「暗-亮-暗」的 3px 细条，
+     放大看图（shots-bamboo/zoom-dark-bamboo.png）几乎看不见，而且**单条竖线**这个形状
+     正是木牌时代踩过的坑 —— 牌面上一道孤立的竖线会被读成"牌面裂了"。
+     改成对称的两脊一沟之后，它在读感上是"竹子鼓出来的一圈箍"而不是"一道划痕"：
+     划痕是**一条**线，竹节是**成对**的两条脊 + 中间一道收紧的沟。 */
+.game-nav .nav-item:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs)::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0;
+  left: calc(var(--b-node) * 1px);
+  width: 5px;
+  pointer-events: none;
+  background: linear-gradient(90deg,
+    rgba(0, 0, 0, 0.00) 0%,
+    rgba(255, 252, 224, 0.32) 20%,
+    rgba(0, 0, 0, 0.36) 50%,
+    rgba(255, 252, 224, 0.28) 80%,
+    rgba(0, 0, 0, 0.00) 100%);
+}
+
 .game-nav .nav-bottom { border-top-color: rgba(206, 176, 104, 0.2); }
 .game-nav .nav-turn { color: var(--gold-dim); }
-/* 导航图标＝一枚墨线小印（单字）。旧版是彩色 emoji，和鎏金深底格格不入。 */
+/* 导航图标＝一枚墨书小印（单字），不用彩色 emoji —— 它和鎏金深底格格不入。
+   ⚠ 竹简是**用墨写的**（竹片本身不刻花）：所以这里"写在竹面上"，
+     改成"写在竹面上的一枚印记"——底面只留一层极淡的墨晕，边界靠一圈细墨线，
+     字用 --bam-ink（浓墨主题是浅奶色、淡墨主题是深墨色，见各主题自己的那一条）。 */
 .game-nav .nav-icon {
   flex: 0 0 auto;
   width: 21px; height: 21px; line-height: 19px;
   display: inline-flex; align-items: center; justify-content: center;
   font-family: var(--font-serif);
   font-size: 12.5px; text-align: center;
-  color: var(--gold-dim);
-  border: 1px solid rgba(206, 176, 104, 0.34);
-  border-radius: 4px;
-  background: rgba(214, 186, 110, 0.06);
-  transition: color .15s, border-color .15s, background .15s;
+  color: var(--bam-ink);
+  border: 1px solid rgba(0, 0, 0, 0.42);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 250, 214, 0.16);
+  transition: color .15s, border-color .15s, background .15s, transform .2s var(--ease-out);
 }
-.game-nav .nav-item:hover:not(:disabled) .nav-icon { border-color: var(--gold-dark); color: var(--gold); }
+.game-nav .nav-item:hover:not(:disabled) .nav-icon { border-color: rgba(0, 0, 0, 0.55); background: rgba(0, 0, 0, 0.24); color: #fffbe0; }
+
+/* ⚠⚠ 2026-09-23：竹片上那枚单字小印**只在窄栏用**。
+   用户要求「把故事前面的事字去掉，其他例如设置前面的设也一样」⇒
+   宽屏下就地不显示它，牌面上只剩「故事 / 设置」这几个字。
+   ⚠⚠ 必须是 min-width 的媒体查询，**不能**写成无条件的 display:none：
+     ≤900px 时 theme.css 会隐藏 .nav-label、把栏宽收到 56px，全靠这枚单字认路
+     （theme.css 的 `.game-nav .nav-label { display: none }`）。
+     无条件隐藏会让窄栏变成十块空白竹片。断点必须与 theme.css 那条 900px 对齐。
+   ⚠ 媒体查询不加特异性，这段是靠**位置在 .nav-icon 基线之后**赢的 —— 别挪到前面去。 */
+@media (min-width: 901px) {
+  .game-nav .nav-icon { display: none; }
+}
+/* 图标撤掉后标签会滑到竹片左沿贴死（只剩 8px 内边距），这里把它摆回竹片中间。 */
+.game-nav .nav-item { justify-content: center; }
+/* 标签加粗（用户：「然后把这些字加粗」）。
+   ⚠ 这一档的加粗是浏览器**合成**出来的：本处字体走 --font-serif，本机是单字重的
+     楷体/宋体，没有真正的粗体字面 ⇒ 笔画变厚、**字宽一个像素都不变**。
+     所以「量宽度有没有变宽」判不出加粗，只能数墨量（见 ggshot/splashnav.cjs ⑥）。
+   ⚠ 写在 .nav-label 上而不是 .nav-item 上：选中态那条规则给按钮设 font-weight: 600，
+     写按钮上会被按状态分档；写在标签自身则十片一律 700。 */
+.game-nav .nav-label { font-weight: 700; }
+/* 选中＝一枚**实墨**印（墨底浅字）：两套主题都用同一套值 ——
+   深墨印落在浓墨的深竹片上、或落在淡墨的浅竹片上，都一样立得住。 */
 .game-nav .nav-item.active .nav-icon {
-  color: var(--on-gold);
-  background: linear-gradient(180deg, var(--gold-btn-a), var(--gold-btn-b));
-  border-color: var(--gold-dark);
+  color: #f8f4d8;
+  background: linear-gradient(180deg, rgba(22, 18, 4, 0.90), rgba(40, 34, 10, 0.90));
+  border-color: rgba(255, 246, 200, 0.50);
+  box-shadow: inset 0 1px 0 rgba(255, 250, 230, 0.20), 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* 淡墨（宣纸）：竹片改成**篾黄**（竹青削掉后写字的浅黄面），字改成深墨，绳子改成赭色棉绳。
+   ⚠ 与浓墨那套的差别只在**明度与饱和**：浓墨是深竹青（浅字压深底），
+     淡墨是浅篾黄（深字压浅底）。**纤维角度、弧面形状、竹节三件都不许在这里重写** ——
+     重写就会漏掉一层，变成"淡墨下没有竹纤维"（木牌时代就是这么漏的）。 */
+html[data-theme="light"] .game-nav {
+  --cord: rgba(150, 112, 62, 0.62);
+  --cord-hi: rgba(196, 162, 104, 0.5);
+  --bam-a: #cfc98c;
+  --bam-b: #a9a25c;
+  --bam-edge: #6f6a2a;
+  --bam-hi: rgba(255, 252, 224, 0.60);
+  --bam-ink: #34300f;
+  --cord-shadow: rgba(80, 56, 24, 0.30);
+}
+html[data-theme="light"] .game-nav .nav-item:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  background-image:
+    linear-gradient(180deg,
+      rgba(90, 84, 34, 0.26) 0%,
+      rgba(90, 84, 34, 0.14) 18%,
+      rgba(255, 255, 240, 0.34) 34%,
+      rgba(255, 255, 240, 0.22) 52%,
+      rgba(90, 84, 34, 0.06) 70%,
+      rgba(90, 84, 34, 0.20) 92%,
+      rgba(90, 84, 34, 0.30) 100%),
+    repeating-linear-gradient(180deg, rgba(96, 90, 38, 0.16) 0 1px, rgba(255, 255, 255, 0) 1px 4px),
+    repeating-linear-gradient(180deg, rgba(255, 253, 235, 0.34) 0 1px, rgba(0, 0, 0, 0.0) 1px 11px),
+    linear-gradient(180deg, var(--bam-a) 0%, var(--bam-b) 100%);
+  background-color: var(--bam-b);
+  border-color: var(--bam-edge);
+  box-shadow:
+    inset 0 0 0 1px var(--bam-hi),
+    inset 0 -2px 4px rgba(96, 88, 36, 0.24),
+    0 2px 3px rgba(80, 70, 20, 0.30),
+    0 1px 0 rgba(80, 70, 20, 0.36);
+}
+html[data-theme="light"] .game-nav .nav-item:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs):hover:not(:disabled) {
+  color: #2a2708;
+  background-image:
+    linear-gradient(180deg,
+      rgba(90, 84, 34, 0.18) 0%,
+      rgba(90, 84, 34, 0.08) 18%,
+      rgba(255, 255, 246, 0.48) 34%,
+      rgba(255, 255, 246, 0.34) 52%,
+      rgba(90, 84, 34, 0.02) 70%,
+      rgba(90, 84, 34, 0.14) 92%,
+      rgba(90, 84, 34, 0.24) 100%),
+    repeating-linear-gradient(180deg, rgba(96, 90, 38, 0.18) 0 1px, rgba(255, 255, 255, 0) 1px 4px),
+    repeating-linear-gradient(180deg, rgba(255, 253, 235, 0.36) 0 1px, rgba(0, 0, 0, 0.0) 1px 11px),
+    linear-gradient(180deg, var(--bam-a) 0%, var(--bam-b) 100%);
+}
+html[data-theme="light"] .game-nav .nav-item.active:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  color: #232006;
+  background-image:
+    linear-gradient(180deg,
+      rgba(90, 84, 34, 0.12) 0%,
+      rgba(255, 255, 250, 0.14) 16%,
+      rgba(255, 255, 250, 0.56) 34%,
+      rgba(255, 255, 250, 0.40) 52%,
+      rgba(255, 255, 244, 0.06) 70%,
+      rgba(90, 84, 34, 0.08) 92%,
+      rgba(90, 84, 34, 0.18) 100%),
+    repeating-linear-gradient(180deg, rgba(96, 90, 38, 0.17) 0 1px, rgba(255, 255, 255, 0) 1px 4px),
+    repeating-linear-gradient(180deg, rgba(255, 255, 246, 0.40) 0 1px, rgba(0, 0, 0, 0.0) 1px 11px),
+    linear-gradient(180deg, #ddd7a0 0%, var(--bam-b) 100%);
+}
+/* 淡墨主题的图标＝深墨写在浅竹面上（底面只留一点白晕）。
+   ⚠ 这里**故意不写选中态** —— 选中那枚"实墨印"两套主题共用同一条规则，
+     在这里再写一条会把共用那条压掉（木牌时代就是这么给浅色主题单独加了一条棕色底）。 */
+html[data-theme="light"] .game-nav .nav-icon {
+  color: var(--bam-ink);
+  border-color: rgba(96, 88, 34, 0.42);
+  background: rgba(255, 252, 230, 0.30);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .side-panel {
@@ -595,11 +1438,18 @@ input[type="color"] { padding: 2px; background: var(--bg-2); }
 .settings-main-foot { background: linear-gradient(0deg, var(--surface-bar-b), var(--surface-bar-a)); border-top-color: var(--border); }
 .font-preview { background: var(--scrim); border-color: var(--border-gold); }
 
-/* 步骤条 */
+/* 步骤条
+   ⚠ 这三条 (.step-nav button = 0,2,1) 的牌面会盖掉基线的牌面 —— 但它们**不碰**
+     border / border-image，所以第五刀之后手绘框仍然完整保留。
+     ⚠ 第五刀起**不要再写 border-color**（边框由 border-image 负责，border-color
+     在那条带上本来就是死的）。但**必须**写 border-radius: 0 —— 基线是圆角为 0，
+     而 theme.css 的 `.step-nav button` 给了 var(--radius-sm)，不覆盖回来
+     会把四角的顿笔裁圆。
+     状态（当前/已走完）靠文字颜色与背景表达。 */
 .step-nav { background: var(--bg-1); border-bottom-color: var(--border); }
-.step-nav button { background: var(--bg-2); border-color: var(--border); color: var(--text-dim); }
-.step-nav button.done { color: var(--gold-dim); border-color: var(--gold-dark); }
-.step-nav button.current { color: var(--gold); border-color: var(--gold-dim); background: var(--gold-bg); }
+.step-nav button { background: var(--bg-2); border-radius: 0; color: var(--text-dim); }
+.step-nav button.done { color: var(--gold-dim); }
+.step-nav button.current { color: var(--gold); background: var(--gold-bg); }
 
 /* Tab / 分段控件 */
 .tabs { border-bottom-color: var(--border); }
@@ -621,53 +1471,187 @@ input[type="color"] { padding: 2px; background: var(--bg-2); }
 .inject-status-foot { border-top-color: var(--border); }
 
 /* ------------------------------------------------------------
-   8. 主菜单：水墨气势 —— 行楷大字 + 朱印 + 玉牌菜单
-   ------------------------------------------------------------ */
+   8. 主菜单：水墨气势 —— 封面画 + 右侧落款
+   ------------------------------------------------------------
+   ⚠⚠ 2026-09-23 版式重构（用户：图片作首页封面，标题和按钮写在界面右侧，标题用该字体）。
+   三层叠起来：
+     .splash-cover  最底层，整屏铺满的封面画（青绿远山·孤舟）
+     .splash-scrim  中间层，右侧压暗的柔罩（图亮的时候文字也要读得清）
+     .splash-side   最上层，右侧内容列（靠右居中）
+   ⚠ 底色：.splash 自己不铺渐变 —— 那会在封面图边缘露出未覆盖的纸色。
+     浓墨/淡墨的差异改由 .splash-scrim 的浓淡 + 文字令牌承担（令牌本来就跟主题走）。 */
+/* ⚠ 底色：.splash 自身**必须透明** —— 它比 .splash-cover 晚画（DOM 里 cover 是它的子元素，
+   但 cover 已 fixed 到视口），一旦这里铺色会把封面整个盖掉。
+   兜底色交给 body（浓墨本来就是深青底），封面图没加载出来也不会闪白。 */
 .splash {
-  background:
-    radial-gradient(ellipse 62% 38% at 50% 12%, rgba(214, 186, 110, 0.10), transparent 66%),
-    radial-gradient(ellipse 130% 60% at 50% 118%, var(--splash-veil), transparent 70%);
+  background: transparent;
+
+  /* ⚠⚠ 2026-09-23：进入页面**分两套字** ——
+       · 大标题「造化玉碟」用封面字 --font-cover（自备飞波正点体，见 :root 与 §0）
+       · 其余（副标题 / 版本号 / 三个按钮 / 纸色栏）固定宋体 --font-song
+     用户原话：「首页除了造化玉碟以外其他字段保持宋体」。
+     两套都**与用户偏好脱钩**，理由写在 :root 的 cover / song 两条里。
+
+     ⚠ 这一条只有 (0,1,0)，是靠**继承**生效的 ——
+     而继承**永远输给「元素自己身上任何一条 font-family」**（跟特异性高低无关）。
+     所以首页 9 处文字要一个个数，谁都不能漏（漏掉的那处就停在楷体上，真机量得出来）：
+       · 靠继承就够了（自己没声明过字体）: 版本号、「纸色」标签          → 2 处
+       · 大标题：自己写了 var(--font-cover)，与这里无关                 → 1 处
+       · 副标题：自己写了 var(--font-serif) ⇒ 就地改在下面              → 1 处
+       · 三个按钮 + 「浓墨/淡墨」两颗：自己（或 §4 的 button 基线）声明过
+         var(--font-serif)，而且基线是 (0,4,1)，普通改写压不过
+         ⇒ 由下面那条**写满四个 :not** 的规则统一负责                    → 5 处
+     ⚠ 动这些改动之前先看这张清单，改完用 ggshot/splashnav.cjs 复核（它逐处报宽度并判归属，
+       还会把玩家真实字体偏好注入一遍，验「有偏好 = 没偏好」）。 */
+  font-family: var(--font-song);
+}
+/* ⚠⚠ 2026-09-23：封面必须**出血到视口边缘**，不能被外壳的左右留白框住。
+   实测根因（boxdiag.cjs）：.app-shell 有 `padding: 0 var(--side-gap)`（1440 时 = 43.2px），
+   首页就长在它里面 ⇒ 封面只有 1354px 宽，两侧各露出 43px 的纸底，看着像「图没铺满」。
+   解法：封面与压暗罩用 **position: fixed** 挂到视口上，尺寸天生等于视口，
+   与外壳留白无关；同时不参与滚动、不影响其它页面的布局。
+   （这不是「顺手加个 fixed」，是量出来的必要手段 —— 用 inset:0 的 absolute 不管用，
+     因为 absolute 的包含块是有 padding 的 .splash。） */
+.splash-cover {
+  position: fixed; inset: 0;
+  background-image: url("/splash/cover.jpg");
+  background-size: cover;
+  background-position: 50% 50%;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  z-index: 0;
+}
+/* 右侧压暗：从右往左渐隐，左边完全透明 ⇒ 山水主体不受影响 */
+.splash-scrim {
+  position: fixed; inset: 0;
+  background: linear-gradient(
+    to left,
+    rgba(6, 22, 25, 0.80) 0%,
+    rgba(6, 22, 25, 0.62) 26%,
+    rgba(6, 22, 25, 0.22) 52%,
+    rgba(6, 22, 25, 0) 72%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+/* 内容列：靠右居中。
+   ⚠ 也用 fixed：封面既然出血到视口，内容就必须按**视口**定位，
+     否则右边会多出一个 side-gap（43px）的偏移，跟封面右边缘不对齐。
+   ⚠ 竖直居中：原来靠 flex + justify-content:center，但 .splash-side 在 fixed 下
+     高度等于视口、内容却只有 ~470px ⇒ 实测标题中心落在 cy=259（应为 450）。
+     原因是 .splash 继承的 .app-shell 内边距把可用高度挤掉了。
+     现在 side 走 fixed inset:0 + flex 居中，竖直居中才是真的。 */
+.splash-side {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: min(46vw, 520px);
+  padding: 0 clamp(28px, 5vw, 88px) 0 24px;
+  display: flex; flex-direction: column;
+  align-items: flex-end;          /* 靠右对齐 */
+  justify-content: center;         /* 竖直居中 */
+  text-align: right;
+  z-index: 2;
+}
+.splash .title-block {
+  text-align: right;
+  margin-bottom: var(--s6);
 }
 .splash .main-title {
-  font-family: var(--font-serif);
+  /* 自备封面字（@font-face 见 §0），缺字回落到行楷/楷体。
+     ⚠ 用 --font-cover，**不是** --font-title —— 后者会被设置页的字体偏好盖掉（见 :root 注释）。 */
+  font-family: var(--font-cover);
+  /* ⚠⚠ 光换 font-family 是不够的：
+  本文件后面那条 `.splash .main-title,.splash h1` 给标题上了
+     「金渐变裁字」——它没被删掉，而新规则**没有重新声明 background / text-fill-color**，
+     于是那三件套继续生效，字被涂成金色渐变，看起来就"没换成自备字体"。
+     这里把裁字三件套 + 那个 drop-shadow 全部摁回原样，让 color 说了算。 */
+  background: none;                      /* MUTANT:E */
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  -webkit-text-fill-color: currentColor; /* MUTANT:F */
+  filter: none;                          /* MUTANT:G */
+  /* ⚠⚠ 2026-09-23 第二刀：用户改口 ——「字体不需要加粗」，上一刀的描边加粗已撤。
+     ⚠ 这里**必须显式写 400**，不能只把那行 700 删掉：
+       theme.css 的 `.splash .main-title` 给的是 `font-weight: 900`（同样是 0,2,0），
+       本行一删它就顶上来 ⇒ 浏览器照样对这个只有 400 的字面做合成加粗，等于没改。
+     也就是说「不加粗」＝用它本来的字面，不是去挑一档更细的 ——
+     封面字只有 400 一档（子集里没有 Bold 表），压根没有别的档可选。 */
   font-weight: 400;
-  background: linear-gradient(180deg, #f6e3a8 0%, #d9b862 44%, #a9853a 100%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: #d9b862;
-  letter-spacing: 16px;
-  text-indent: 16px; /* 抵消 letter-spacing 造成的左偏，让标题真正居中 */
-  /* theme.css 那条是「白描边 + 暖光晕」，配合渐变裁字会变成一圈白毛边，必须关掉 */
-  text-shadow: none;
-  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 22px rgba(206, 176, 104, 0.22));
+  /* 撤销上一刀的描边加粗。写成 0 而不是删掉：删掉就没人再声明它了，
+     将来谁再加一处 text-stroke，这里会是唯一能挡住的地方。 */
+  -webkit-text-stroke: 0;
+  color: #eaf6f2;
+  font-size: clamp(40px, 4.6vw, 68px);
+  letter-spacing: 12px;
+  text-indent: 12px;               /* 抵消 letter-spacing 造成的右偏 */
+  line-height: 1.18;
+  /* 封面是亮色山水 ⇒ 标题得靠自身投影从图上"站"出来，不能只靠底色。
+     ⚠ 投影是**压背景**用的，不是加粗；字重固定 400，这里不加描边。 */
+  text-shadow:
+    0 2px 10px rgba(0, 0, 0, 0.62),
+    0 0 34px rgba(0, 0, 0, 0.42);
 }
-.splash .sub-title { color: var(--text-dim); letter-spacing: 6px; font-family: var(--font-serif); }
-.splash .version { color: var(--text-faint); }
-/* 徽记：一条金线 + 居中一枚朱砂闲章（凡）。
-   章面那个字用百分号转义写进 SVG —— data URI 里不许直接放多字节字符。 */
+.splash .sub-title {
+  color: rgba(238, 248, 245, 0.86);
+  letter-spacing: 4px; text-indent: 4px;
+  /* ⚠ 就地改掉写死的 --font-serif：本元素自己声明了字体，继承不到 .splash 那条
+     （见 §8 开头那段的说明）。
+     ⚠ 必须点名 --font-song（宋体），不能改回 --font-serif ——
+       偏好里的 title="song" 只是**今天**恰好等于宋体，玩家把标题槽换成行楷，
+       这里就会跟着跑；副标题属于「整套写死」的那一档。
+     字号同时提上来：12~14px 的宋体在压暗的封面上笔画会糊，看不清。 */
+  font-family: var(--font-song);
+  font-size: 15px;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+.splash .version {
+  color: rgba(226, 240, 236, 0.62);
+  /* ⚠ theme.css 给的是 var(--fs-xs)＝12px，点阵字下像一排麻点。
+     宋体 + 15px 才在压暗的封面上立得住（与副标题、纸色栏同档）。 */
+  font-size: 15px;
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.55);
+}
+/* ⚠⚠ 2026-09-23：标题下那枚**朱砂闲章（凡）已按用户要求去掉**。
+   原来这里是「一条金线 + 居中一枚红章」，压在封面照片上出戏（红方块在青绿山水里很跳）。
+   现在整块 ::after 不给生成盒子 —— 连那条金线也一并去掉，标题块下面保持干净。
+   ⚠ 是按用户当轮明确要求删的，不要因为「看着少点东西」就加回来。
+   保留 .title-block 的 position:relative：结构上它仍是定位参照（将来挂别的东西方便）。 */
 .splash .title-block { position: relative; }
-.splash .title-block::after {
-  content: '';
-  display: block;
-  width: 248px; height: 26px;
-  margin: var(--s5) auto 0;
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Crect x='1.5' y='1.5' width='23' height='23' rx='4' fill='%239c2f26' stroke='%23d4705c' stroke-width='1'/%3E%3Ctext x='13' y='19' font-size='15' fill='%23f7e6c8' text-anchor='middle' font-family='KaiTi,STKaiti,serif'%3E%E5%87%A1%3C/text%3E%3C/svg%3E"),
-    var(--ink-line);
-  background-size: 26px 26px, 100% 1px;
-  background-position: center, 0 50%;
-  background-repeat: no-repeat, no-repeat;
-}
+.splash .title-block::after { content: none; }
+
+/* ⚠ 这三条的选择器特异性 (.splash .menu-list button = 0,3,1) 高于基线那条
+   `button:not(.ghost)...` (0,4,1)？—— **不高于**，基线仍是 (0,4,1)，会赢。
+   但这里仍然要把牌面自己写一遍：因为 `.splash .menu-list button` 有
+   letter-spacing / box-shadow 这类基线没管的属性，而且一旦哪天基线的
+   豁免名单变了，这里得能独立站住。
+   ⚠ 第五刀之后**不要再写 border-color** —— 边框现在由 border-image
+   （完整四边手绘框）负责，border-color 在那条带上本来就是死的（第三刀实测）。
+   状态变化一律靠牌面与外发光。 */
 .splash .menu-list button {
+  /* 主菜单按钮要有"浮动"的分量感：牌面比别的按钮亮一档 */
   background: linear-gradient(180deg, var(--menu-btn-a), var(--menu-btn-b));
-  border-color: var(--border-gold);
   color: var(--text);
-  font-family: var(--font-serif);
+  /* ⚠⚠ 2026-09-23 第二刀（实测）：这里**不能**写 font-family。
+     本规则只有 (0,2,1)，而 §4 那条基线 `button:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs)`
+     是 (0,4,1) —— 它里面也有一句 `font-family: var(--font-serif)`，直接赢掉这里。
+     真机量过：写在下面的 font-family 是死的，三个按钮照样算出 STKaiti。
+     首页用的封面字改由下面「四、首页封面字的兜底」那条写满四个 :not 的规则负责。 */
   letter-spacing: 8px; text-indent: 8px;
-  box-shadow: inset 0 1px 0 rgba(214, 186, 110, 0.12), 0 4px 14px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
 }
+/* ⚠ 2026-09-23：按钮列改成靠右。
+   .menu-list 在 theme.css 里是 `display:flex; flex-direction:column; width:300px`，
+   这里不改宽度，只让它**自己贴到容器的右边**（容器 .splash-side 已 align-items:flex-end，
+   但 .menu-list 是块级、会撑满，所以还要 align-self）。
+   text-indent 与 letter-spacing 相等 ⇒ 字面居中，不会因为加了字距而右偏。 */
+.splash .menu-list {
+  align-self: flex-end;
+  align-items: stretch;
+}
+/* 悬停**不要**改边框：改了会让手绘框的浓淡被重新合成。
+   状态改用外发光表示。 */
 .splash .menu-list button:hover {
-  border-color: var(--gold-dim); color: var(--gold);
-  box-shadow: inset 0 1px 0 rgba(214, 186, 110, 0.2), 0 0 26px rgba(206, 176, 104, 0.2);
+  color: var(--gold);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5), 0 0 26px rgba(206, 176, 104, 0.24);
 }
 .splash .menu-list button.primary {
   background: linear-gradient(180deg, var(--gold-btn-a) 0%, var(--gold-btn-b) 52%, var(--gold-btn-c) 100%);
@@ -677,6 +1661,37 @@ input[type="color"] { padding: 2px; background: var(--bg-2); }
   background: linear-gradient(180deg, var(--gold-btn-hi-a) 0%, var(--gold-btn-hi-b) 52%, var(--gold-btn-hi-c) 100%);
   color: var(--on-gold-strong);
 }
+/* ⚠⚠ 把「开始新人生」的字重摁在 400 —— 它是首页唯一带 .primary 的按钮，而上面 §4 那条
+       `button.primary:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs)`
+   给了它 `font-weight: 700`，特异性 (0,5,1) **高于** `.splash .menu-list button` 的 (0,2,1)
+   ⇒ 光改上面那条没用，这颗按钮会一颗粗两颗细、跟另外两颗不齐。
+   首页三颗键的字重必须一致（400）。
+   ⚠ 为什么不是「三颗都 700」：首页字号 15.5px，宋体在这一档没有真正的粗体字面，
+     浏览器只能**合成加粗** —— 笔画会互相粘连发糊（点阵封面字时代这个现象更明显）。
+   所以这里必须照 §4「五、特异性」立下的老规矩**把四个 :not 写满**，把选择器抬到 (0,7,1)。
+   ⚠ 以后再加首页按钮变体，也照这条写；数字再改一次：这条比 §4 的 700 那条**高两档**。 */
+.splash .menu-list button.primary:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  font-weight: 400;
+}
+
+/* ⚠⚠ 2026-09-23：首页所有按钮 —— 三个菜单键 + 「浓墨/淡墨」两颗 ——
+   必须在这里点名换字体，**不能**靠 .splash 那条继承，也**不能**写在
+   `.splash .menu-list button` 里。原因同一个：
+     §4 那条 (0,4,1) 的基线 `button:not(.ghost)…` 里有一句
+     `font-family: var(--font-serif)`，它压掉一切 (0,2,1) 级的选择器。
+   真机实测（ggshot/splashfont.cjs）：没写这条之前，三个按钮与两颗主题键算出来的
+   font-family 首选都是 `STKaiti`（楷体）。
+   ⇒ 老规矩：写满四个 :not，抬到 (0,6,1) / (0,6,0)，稳稳压过基线。
+   ⚠ 「纸色」那个标签是 <span>，没有直接声明 ⇒ 仍然靠 .splash 继承，不在这里。
+   ⚠⚠ 这里必须点名 --font-song（宋体）：它不属于任何可调槽位，
+     偏好里的 title="song" 改写的是 `--font-serif`，碰不到它。
+     同理**不能**改写 `var(--font-serif)` —— 那等于把首页交给玩家的字体偏好管。 */
+.splash .menu-list button:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs),
+.splash .theme-opt:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  font-family: var(--font-song);
+}
+/* ⚠ 2026-09-23：首页已无 .footer 元素（右侧落款版式里不需要底部留白锚点），
+   这条连同 theme.css 里的那条都是死规则。保留是为了有朝一日恢复页脚时不用重写。 */
 .splash .footer { color: var(--text-faint); line-height: 1.9; }
 
 /* ------------------------------------------------------------
@@ -691,7 +1706,7 @@ input[type="color"] { padding: 2px; background: var(--bg-2); }
   padding: 6px 2px var(--s4);
   border-bottom: none;
 }
-/* 段落之间的金菱分隔（原来是个白色底衬的圆点，深底上要换掉） */
+/* 段落之间的金菱分隔（深底上不要用白色底衬的圆点） */
 .story-block::after {
   content: '❖';
   left: 50%; bottom: -12px;
@@ -767,17 +1782,32 @@ input[type="color"] { padding: 2px; background: var(--bg-2); }
 .char-item.active { background: rgba(214, 186, 110, 0.18); border-color: var(--gold-dark); }
 .char-item-name { color: var(--text); }
 
+/* ⚠⚠ 提示条**不带边框**（用户报「弹出的消息在框内还有一条明显的边框」）。
+   那条边框是原来的 `border: 1px solid var(--border-gold)` —— 淡青 42% 画在深青牌面上，
+   1px 也是一条清清楚楚的线；外面还压着一层投影，看上去就成了"框里面又套了一个框"。
+   现在整条去掉：提示条只剩一块圆角牌面 + 一颗状态圆点 + 投影。
+   成功 / 失败 / 警告的区分改由左侧那枚小圆点的颜色承担（见下面四条 .toast-*.toast-icon）。
+
+   ⚠ 背景的**取样盒必须显式写成 border-box**（origin 与 clip 取同一个盒子）：
+     `background:` 简写会把 background-origin 重置回 **padding-box**，
+     而 background-clip 默认是 border-box —— 两个盒子差 1px 边框带，
+     那条带上取到的是渐变的边缘重复色，剖面上就是紧贴边缘的一条亮线。
+     （按钮上踩过同一个坑，那里差的是 18.6 级。）
+     真机实测 ggshot/splashnav.cjs（横穿左边缘、按亮度）：改前边缘 93 / 邻域 43.5 ＝ 凸起 49.5。
+     ⇒ 光去掉 border 不够，这两行必须写：写完之后，将来即使有人把 border 加回来，
+       牌面里也不会再冒出一条"内框"。 */
 .toast {
   background: linear-gradient(180deg, var(--battle-chip-a), var(--battle-chip-b));
+  background-origin: border-box;
+  background-clip: border-box;
   color: var(--text);
-  border: 1px solid var(--border-gold);
+  border: 0;
   box-shadow: 0 10px 34px rgba(0, 0, 0, 0.7);
 }
-.toast-err { border-color: rgba(224, 132, 104, 0.5); }
-.toast-warn { border-color: rgba(214, 186, 110, 0.55); }
+/* 状态色只在圆点上，牌面不再描边 —— 所以这里没有 .toast-err / .toast-warn 的 border-color。 */
 .toast-ok .toast-icon { background: #4d7a33; }
 .toast-err .toast-icon { background: #a84a36; }
-.toast-info .toast-icon { background: #8a6a1c; }
+.toast-info .toast-icon { background: #3d6b6b; }
 .toast-warn .toast-icon { background: var(--gold-dim); color: var(--on-gold); }
 .spinner { border-color: rgba(214, 186, 110, 0.28); border-top-color: var(--gold-dim); }
 .loading-tip { color: var(--gold-dim); }
@@ -939,6 +1969,12 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
 .sp-prompt-row.open { background: rgba(214, 186, 110, 0.07); border-color: var(--gold-dim); }
 .sp-prompt-head:hover { background: rgba(214, 186, 110, 0.08); }
 .sp-prompt-name { color: var(--gold); }
+/* 段启停开关：几何尺寸在 theme.css，这里只换滑轨/滑球的颜色令牌
+   （与「世界因子」那套 .factor-switch 同源，见本文件 .factor-switch 那一段）。 */
+.sp-seg-switch { background: var(--surface-switch); }
+.sp-seg-switch::after { background: var(--surface-knob); }
+.sp-seg-switch[aria-checked="true"] { background: var(--gold-dim); }
+.sp-seg-switch[aria-checked="true"]::after { background: var(--on-gold); }
 .sp-prompt-content, .sp-raw-view { background: var(--bg-0); color: var(--text-dim); border-color: var(--border); }
 .sp-drag-hint { background: rgba(214, 186, 110, 0.16); color: var(--gold); border-color: var(--gold-dim); box-shadow: none; }
 .preset-content-input { background: var(--surface-well); }
@@ -967,15 +2003,12 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
 .cp-row .cp-swatch { border-color: var(--border); }
 .cp-head { color: var(--text-faint); }
 
-/* 性格维度 */
+/* 性格维度
+   ⚠ 同 .step-nav：本身不碰 border-image，手绘框保留；
+     只把 border-radius 压回 0，让四角的顿笔不被裁掉。 */
 .dim-row .dim-labels .l { color: var(--gold-dim); }
-.dim-scale button { background: var(--bg-2); border-color: var(--border); color: var(--text-faint); }
-.dim-scale button.on { background: var(--gold-bg); border-color: var(--gold-dim); color: var(--gold); }
-.pers-bar::after { background: var(--border-gold); }
-.pers-cell { background: var(--surface-cell); }
-.pers-cell.on { background: var(--gold-dark); }
-.pers-bar:not(.ro):hover .pers-cell { background: var(--surface-cell-hi); }
-.pers-bar:not(.ro):hover .pers-cell.on { background: var(--gold-dim); }
+.dim-scale button { background: var(--bg-2); border-radius: 0; color: var(--text-faint); }
+.dim-scale button.on { background: var(--gold-bg); color: var(--gold); }
 .pers-pole.on { color: var(--gold); }
 .pers-summary .pers-chip { background: var(--gold-bg); border-color: var(--border-gold); color: var(--gold); }
 
@@ -1058,6 +2091,9 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
 .mortal-cultivation-card .cv-title { color: var(--gold); }
 .mortal-cultivation-card .cv-row { color: var(--text-dim); }
 .mortal-cultivation-card .cv-row b { color: var(--text); }
+/* 算式行：AI 本轮现算的过程，比上面的账目低一级，用来核对 */
+.mortal-cultivation-card .cv-calc { gap: 12px; font-size: var(--fs-xs); color: var(--text-faint); }
+.mortal-cultivation-card .cv-calc span { overflow-wrap: anywhere; }
 
 .mortal-battle-card {
   border-color: rgba(210, 110, 80, 0.42);
@@ -1100,22 +2136,22 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
    而写的局部令牌重设，它排在文件后面，特异性又和 [data-theme] 一样 ⇒
    如果不加这道限定，切到亮色后它会再把战斗页拉回深色。 */
 :root:not([data-theme="light"]) .battle-shell {
-  --bg-0: #100d08;
-  --bg-1: #1a150e;
-  --bg-2: #221b12;
-  --bg-3: #2e2517;
-  --text: #eee5cd;
-  --text-dim: #bcaf90;
-  --text-faint: #8f8369;
-  --border: #3b3223;
-  --border-gold: rgba(206, 176, 104, 0.42);
-  --gold: #e8ca7c;
-  --gold-dim: #cfb063;
-  --gold-dark: #8b7030;
-  --green: #93c26e; --green-bg: rgba(147, 194, 110, 0.13);
-  --red: #e08468;   --red-bg: rgba(224, 132, 104, 0.13);
-  --blue: #86b6e6;  --blue-bg: rgba(134, 182, 230, 0.13);
-  --danger: #e08468;
+  --bg-0: #0c2226;
+  --bg-1: #14383d;
+  --bg-2: #1a464c;
+  --bg-3: #22545b;
+  --text: #e4f0ec;
+  --text-dim: #aac7c3;
+  --text-faint: #84a5a4;
+  --border: #265055;
+  --border-gold: rgba(154, 206, 196, 0.38);
+  --gold: #cfe6de;
+  --gold-dim: #a8cfc8;
+  --gold-dark: #5f8f95;
+  --green: #a8cf8a; --green-bg: rgba(168, 207, 138, 0.13);
+  --red: #e89478;   --red-bg: rgba(232, 148, 120, 0.13);
+  --blue: #9cc4e6;  --blue-bg: rgba(156, 196, 230, 0.13);
+  --danger: #e89478;
 
   background-color: var(--bg-1);
   background-image:
@@ -1134,17 +2170,22 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
 .battle-scene { box-shadow: inset 0 0 44px rgba(0, 0, 0, 0.5), 0 12px 34px rgba(0, 0, 0, 0.5); }
 .battle-log { background: var(--surface-field); }
 .battle-log::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--thumb-a), var(--thumb-b)); border-color: var(--surface-field); }
+/* ⚠ 这里的 .battle-shell button (0,2,1) 会盖掉基线的**牌面**，但**不碰** border /
+   border-image ⇒ 手绘框完整保留。所以这里一个边框属性都不用写。
+   ⚠ 但**必须**把 border-radius 压回 0（与基线一致），否则 theme.css/polish.css
+   给战斗按钮的圆角会把四角顿笔裁圆。状态变化靠背景与外发光。 */
 .battle-shell button {
   background: linear-gradient(180deg, var(--btn-a), var(--btn-b));
-  border-color: var(--border-gold); color: var(--text);
+  border-radius: 0; color: var(--text);
 }
 .battle-shell button:hover:not(:disabled) {
   background: linear-gradient(180deg, var(--btn-hover-a), var(--btn-hover-b));
-  border-color: var(--gold-dim); color: var(--gold);
+  color: var(--gold);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 0 12px rgba(154, 206, 196, 0.18);
 }
 .battle-shell button.primary, .battle-shell button.bp-end {
   background: linear-gradient(180deg, var(--gold-btn-a), var(--gold-btn-b));
-  border-color: var(--gold-dark); color: var(--on-gold);
+  border-radius: 0; color: var(--on-gold);
 }
 .battle-shell button.primary:hover:not(:disabled), .battle-shell button.bp-end:hover {
   background: linear-gradient(180deg, var(--gold-btn-hi-a), var(--gold-btn-hi-b)); color: var(--on-gold-strong);
@@ -1173,7 +2214,7 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
    办法：给名字那一行铺一层 74% 的浅底片，把底统一压进浅色区间，深字就都立得住了
    （重新算下来最低 4.6:1）。原本那圈白描边保留 —— 它在浅底片上没有副作用，
    在还没铺满的边缘处仍然有用。
-   ⚠ 「当前出手」的字色在这儿**钉死成深金**、不再取 --gold：底片是浅的，
+   ⚠ 「当前出手」的字色在这儿**钉死成深金**、不取 --gold：底片是浅的，
      而深色主题那支亮金（#e8ca7c）压上去只剩 1.2:1。
    血条（.bs3-bar）不动：它自己已经有半透明深底，是色块不是字。 */
 .bs3-tag .bs3-name {
@@ -1189,7 +2230,8 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
 /* 三维起不来时的兜底格盘 */
 .bs3-fb-grid { border-color: var(--border-gold); background: var(--border-gold); }
 .bs3-loading { color: var(--text-dim); }
-.bs3-fb-note { color: var(--text-dim); }
+/* ⚠ 这里**不要**再给 .bs3-fb-note 定字色：它会盖掉 theme.css 里那条"浅底片 ＋ 深字"的规则
+   （同为单类选择器，本文件在后面就赢），而本皮肤下战场底色是宣纸浅色 —— 淡字压上去读不出来。 */
 
 /* 让「app-shell」两侧那两条金竖线更含蓄一点（深底上原来偏亮） */
 .app-shell::before, .app-shell::after {
@@ -1197,10 +2239,28 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
   opacity: 0.5;
 }
 
-/* 主菜单在窄屏时 letter-spacing 过大会挤出边界 */
+/* 主菜单在窄屏时 letter-spacing 过大会挤出边界；
+   ⚠ 2026-09-23 加上「窄屏翻成上下版式」——内容列在窄屏占满宽度会更可读。 */
 @media (max-width: 560px) {
   .splash .main-title { letter-spacing: 8px; text-indent: 8px; font-size: 34px; }
   .splash .menu-list button { letter-spacing: 5px; text-indent: 5px; }
+  .splash-side {
+    width: 100%;
+    align-items: center;              /* 窄屏改为居中，右侧落款挤不下 */
+    padding: 0 22px;
+    text-align: center;
+  }
+  .splash .title-block { text-align: center; }
+  .splash .menu-list { align-self: center; width: 100%; max-width: 300px; }
+  .splash .theme-switch { align-self: center; justify-content: center; }
+  .splash-scrim {
+    background: linear-gradient(
+      to top,
+      rgba(6, 22, 25, 0.86) 0%,
+      rgba(6, 22, 25, 0.55) 42%,
+      rgba(6, 22, 25, 0) 72%
+    );
+  }
 }
 
 /* ------------------------------------------------------------
@@ -1214,37 +2274,46 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
    靠"后来的同特异性覆盖前面的"才盖得住。
    ------------------------------------------------------------ */
 
-/* ① 底：宣纸 + 淡墨远山 */
+/* ① 底：青宣纸 + 淡墨远山 */
 [data-theme="light"] body {
   background-color: var(--bg-0);
   background-image:
-    radial-gradient(ellipse 74% 42% at 50% -6%, rgba(154, 122, 40, 0.10), transparent 62%),
-    radial-gradient(ellipse 46% 38% at 8% 16%, rgba(90, 120, 110, 0.05), transparent 70%),
-    radial-gradient(ellipse 50% 40% at 94% 74%, rgba(90, 120, 110, 0.04), transparent 72%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 560'%3E%3Ccircle cx='1150' cy='138' r='72' fill='%23c2a45c' fill-opacity='.10'/%3E%3Ccircle cx='1150' cy='138' r='72' fill='none' stroke='%23b09040' stroke-opacity='.22'/%3E%3Cg fill='none' stroke='%23b09040' stroke-opacity='.18' stroke-width='1.3'%3E%3Cpath d='M170 156c16-24 48-24 62-4 13-18 44-15 48 6'/%3E%3Cpath d='M690 92c12-18 36-18 46-3 11-13 32-11 36 5'/%3E%3Cpath d='M1010 202c14-20 42-20 54-3 12-15 38-13 42 5'/%3E%3C/g%3E%3Cpath fill='%23e6dabc' stroke='%23b09040' stroke-opacity='.20' d='M0 356C70 330 110 268 178 286 236 302 268 236 336 256 396 274 430 196 508 226 560 246 592 190 668 214 730 234 768 172 842 202 906 228 946 186 1024 212 1090 234 1128 196 1200 218 1268 238 1320 210 1382 228 1410 236 1428 240 1440 244L1440 560 0 560Z'/%3E%3Cpath fill='%23ddcfae' stroke='%23b09040' stroke-opacity='.26' d='M0 424C86 400 132 348 208 368 288 388 336 322 424 346 512 370 566 312 660 336 748 358 802 304 896 328 986 350 1042 306 1136 330 1216 350 1272 320 1352 342 1396 354 1420 356 1440 360L1440 560 0 560Z'/%3E%3Cg fill='%23b09040' fill-opacity='.20'%3E%3Cpath transform='translate(286,344) scale(1.4)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3Cpath transform='translate(314,352) scale(1.1)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3Cpath transform='translate(1004,338) scale(1.25)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3C/g%3E%3Cpath fill='%23d3c3a0' stroke='%23b09040' stroke-opacity='.32' d='M0 494C96 474 156 434 252 454 344 472 404 426 502 448 600 470 664 428 764 448 862 468 926 430 1024 450 1114 468 1178 438 1268 456 1338 470 1398 462 1440 466L1440 560 0 560Z'/%3E%3C/svg%3E"),
-    repeating-linear-gradient(135deg, transparent 0 26px, rgba(154, 122, 40, 0.022) 26px 27px),
-    repeating-linear-gradient(45deg, transparent 0 82px, rgba(154, 122, 40, 0.016) 82px 83px),
-    radial-gradient(ellipse at 50% 112%, #ece0c4 0%, #f2e9d4 64%);
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 560'%3E%3Ccircle cx='1150' cy='138' r='72' fill='%232c5f5c' fill-opacity='.08'/%3E%3Ccircle cx='1150' cy='138' r='72' fill='none' stroke='%232c5f5c' stroke-opacity='.20'/%3E%3Cg fill='none' stroke='%232c5f5c' stroke-opacity='.15' stroke-width='1.3'%3E%3Cpath d='M170 156c16-24 48-24 62-4 13-18 44-15 48 6'/%3E%3Cpath d='M690 92c12-18 36-18 46-3 11-13 32-11 36 5'/%3E%3Cpath d='M1010 202c14-20 42-20 54-3 12-15 38-13 42 5'/%3E%3C/g%3E%3Cpath fill='%23cfdac0' stroke='%232c5f5c' stroke-opacity='.18' d='M0 356C70 330 110 268 178 286 236 302 268 236 336 256 396 274 430 196 508 226 560 246 592 190 668 214 730 234 768 172 842 202 906 228 946 186 1024 212 1090 234 1128 196 1200 218 1268 238 1320 210 1382 228 1410 236 1428 240 1440 244L1440 560 0 560Z'/%3E%3Cpath fill='%23c4d1b3' stroke='%232c5f5c' stroke-opacity='.24' d='M0 424C86 400 132 348 208 368 288 388 336 322 424 346 512 370 566 312 660 336 748 358 802 304 896 328 986 350 1042 306 1136 330 1216 350 1272 320 1352 342 1396 354 1420 356 1440 360L1440 560 0 560Z'/%3E%3Cg fill='%232c5f5c' fill-opacity='.17'%3E%3Cpath transform='translate(286,344) scale(1.4)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3Cpath transform='translate(314,352) scale(1.1)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3Cpath transform='translate(1004,338) scale(1.25)' d='M0 0 4 12 1.5 12 6 24 2.5 24 7 34-7 34-2.5 24-6 24-1.5 12-4 12Z'/%3E%3C/g%3E%3Cpath fill='%23b8c7a6' stroke='%232c5f5c' stroke-opacity='.30' d='M0 494C96 474 156 434 252 454 344 472 404 426 502 448 600 470 664 428 764 448 862 468 926 430 1024 450 1114 468 1178 438 1268 456 1338 470 1398 462 1440 466L1440 560 0 560Z'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse 74% 42% at 50% -6%, rgba(44, 95, 92, 0.09), transparent 62%),
+    radial-gradient(ellipse 46% 38% at 8% 16%, rgba(70, 110, 100, 0.05), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 94% 74%, rgba(70, 110, 100, 0.04), transparent 72%),
+    repeating-linear-gradient(135deg, transparent 0 26px, rgba(44, 95, 92, 0.020) 26px 27px),
+    repeating-linear-gradient(45deg, transparent 0 82px, rgba(44, 95, 92, 0.015) 82px 83px),
+    radial-gradient(ellipse at 50% 112%, #d6dfc9 0%, #dfe7d9 64%);
   background-attachment: fixed;
-  background-size: auto, auto, auto, 100% auto, auto, auto, auto;
-  background-position: 0 0, 0 0, 0 0, center bottom, 0 0, 0 0, 0 0;
-  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, repeat, repeat, no-repeat;
+  background-size: auto, auto, auto, auto, auto, auto, auto;
+  background-position: 0 0, 0 0, 0 0, 0 0, center bottom, 0 0, 0 0;
+  background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, repeat, repeat;
 }
 
-/* ② 四角云纹：纸上要用深金褐才看得见 */
+/* ② 四角云纹：纸上要用深墨青才看得见 */
 [data-theme="light"] {
-  --gg-corner-tl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M1 15V8a7 7 0 0 1 7-7h7' fill='none' stroke='%23a8862f' stroke-width='1.1' stroke-opacity='.62'/%3E%3Cpath d='M4.5 13V9a4.5 4.5 0 0 1 4.5-4.5h4' fill='none' stroke='%23a8862f' stroke-width='.8' stroke-opacity='.40'/%3E%3C/svg%3E");
-  --gg-corner-br: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M25 11v7a7 7 0 0 1-7 7h-7' fill='none' stroke='%23a8862f' stroke-width='1.1' stroke-opacity='.62'/%3E%3Cpath d='M21.5 13v4a4.5 4.5 0 0 1-4.5 4.5h-4' fill='none' stroke='%23a8862f' stroke-width='.8' stroke-opacity='.40'/%3E%3C/svg%3E");
+  --gg-corner-tl: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M1 15V8a7 7 0 0 1 7-7h7' fill='none' stroke='%232c5f5c' stroke-width='1.1' stroke-opacity='.55'/%3E%3Cpath d='M4.5 13V9a4.5 4.5 0 0 1 4.5-4.5h4' fill='none' stroke='%232c5f5c' stroke-width='.8' stroke-opacity='.34'/%3E%3C/svg%3E");
+  --gg-corner-br: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Cpath d='M25 11v7a7 7 0 0 1-7 7h-7' fill='none' stroke='%232c5f5c' stroke-width='1.1' stroke-opacity='.55'/%3E%3Cpath d='M21.5 13v4a4.5 4.5 0 0 1-4.5 4.5h-4' fill='none' stroke='%232c5f5c' stroke-width='.8' stroke-opacity='.34'/%3E%3C/svg%3E");
 }
 
-/* ③ 主菜单大标题（渐变裁字）与选中色 */
-[data-theme="light"] .splash .main-title {
-  background: linear-gradient(180deg, #c69a3a 0%, #96701c 44%, #6d4f0c 100%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 1px 0 rgba(255, 253, 246, 0.75));
+/* ③ 主菜单大标题
+   ⚠⚠ 大标题**不用「渐变裁字」**——它压在**照片封面**上：
+   渐变裁字（background-clip:text）会跟照片背景抢对比度，而且
+   浅色主题那道深青渐变压在青绿山水的暗罩上几乎看不见。
+   所以这里不改 background / text-fill-color，
+   只把亮色主题下**压暗罩**的浓度调低一点（纸上不需要那么黑），
+   标题颜色由 §8 的固定浅色负责（照片背景不分主题）。 */
+[data-theme="light"] .splash-scrim {
+  background: linear-gradient(
+    to left,
+    rgba(24, 46, 46, 0.72) 0%,
+    rgba(24, 46, 46, 0.52) 26%,
+    rgba(24, 46, 46, 0.16) 52%,
+    rgba(24, 46, 46, 0) 72%
+  );
 }
-[data-theme="light"] ::selection { background: rgba(154, 122, 40, 0.26); color: #2b2415; }
+[data-theme="light"] ::selection { background: rgba(44, 95, 92, 0.24); color: #1b2a24; }
 
 /* ④ 战斗壳：阴影换暖褐、云纹角换亮色那套，
       并且**把壳内的文字令牌整套重设一遍**（这一条是 2026-09-21 补的漏）。
@@ -1259,34 +2328,34 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
       ⚠ 三支金都比全站那套（#8a6a1c / #9c7c28 / #c2a45c）再深一档 ——
         因为壳里用它们的全是 10~14px 的小字，而全站那套有一半是拿来做装饰边的。 */
 [data-theme="light"] .battle-shell {
-  --bg-0: #f7f0de;
-  --bg-1: #fbf6ea;
-  --bg-2: #f3ead6;
-  --bg-3: #e6dabd;
-  --text: #2b2415;
-  --text-dim: #57492c;
-  --text-faint: #6f5f3c;
-  --border: #d5c7a2;
-  --border-gold: rgba(138, 106, 28, 0.42);
-  --gold: #6f5310;
-  --gold-dim: #63490c;
-  --gold-dark: #503a06;
-  --gold-bg: rgba(154, 122, 40, 0.16);
-  --green: #3f6b2e;  --green-bg: rgba(80, 130, 70, 0.15);
-  --red: #a8342a;    --red-bg: rgba(170, 60, 45, 0.13);
-  --blue: #2a5c8f;   --blue-bg: rgba(60, 110, 175, 0.13);
-  --danger: #a8342a;
+  --bg-0: #e3ead9;
+  --bg-1: #eaf0e2;
+  --bg-2: #e0e7d6;
+  --bg-3: #d3dcc5;
+  --text: #1b2a24;
+  --text-dim: #32483f;
+  --text-faint: #4d6359;
+  --border: #b6c4a8;
+  --border-gold: rgba(44, 95, 92, 0.38);
+  --gold: #1f4d4a;
+  --gold-dim: #245350;
+  --gold-dark: #163d3b;
+  --gold-bg: rgba(44, 95, 92, 0.14);
+  --green: #3a6b28;  --green-bg: rgba(80, 130, 70, 0.15);
+  --red: #8f2f22;    --red-bg: rgba(150, 55, 40, 0.13);
+  --blue: #21517f;   --blue-bg: rgba(60, 110, 175, 0.13);
+  --danger: #8f2f22;
 
-  box-shadow: 0 18px 48px rgba(96, 78, 38, 0.28), inset 0 0 0 1px rgba(154, 122, 40, 0.12);
+  box-shadow: 0 18px 48px rgba(40, 62, 46, 0.26), inset 0 0 0 1px rgba(44, 95, 92, 0.12);
   background-image:
     var(--gg-corner-tl), var(--gg-corner-br),
     linear-gradient(180deg, var(--shell-grad-a) 0%, var(--shell-grad-b) 100%);
 }
 [data-theme="light"] .battle-scene {
-  box-shadow: inset 0 0 44px rgba(96, 78, 38, 0.14), 0 10px 26px rgba(96, 78, 38, 0.18);
+  box-shadow: inset 0 0 44px rgba(40, 62, 46, 0.14), 0 10px 26px rgba(40, 62, 46, 0.18);
 }
 /* 亮色下的「玻璃」：polish.css 里那批 `rgba(255,255,255,.0x)` 是给深底**提亮**用的，
-   铺到纸上等于「没有背景」，层级立不起来。换成暖墨薄玻璃。
+   铺到纸上等于「没有背景」，层级立不起来。换成墨青薄玻璃。
    （`color` 不用在这写：上面令牌一换，`.bp-tabs button` 之类引的 --text-dim/--gold 自己就跟着走了。） */
 [data-theme="light"] .tl-item,
 [data-theme="light"] .bp-tabs button,
@@ -1295,38 +2364,46 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
 [data-theme="light"] .bp-flag.done,
 [data-theme="light"] .bmv,
 [data-theme="light"] .bl-toggle {
-  background: rgba(120, 100, 55, 0.055);
+  background: rgba(50, 82, 62, 0.06);
 }
-[data-theme="light"] .bp-act:disabled { background: rgba(120, 100, 55, 0.03); }
-/* 壳顶部那道鎏金高光线：纸上是深金，用亮金会成一道白线 */
+[data-theme="light"] .bp-act:disabled { background: rgba(50, 82, 62, 0.03); }
+/* 壳顶部那道墨青高光线：纸上是深青，用亮青会成一道白线 */
 [data-theme="light"] .battle-shell::before {
-  background: linear-gradient(90deg, transparent, rgba(138, 106, 28, 0.45), transparent);
+  background: linear-gradient(90deg, transparent, rgba(44, 95, 92, 0.42), transparent);
 }
 /* 壳外的遮罩：亮色下不能用那层近黑的（会把整页宣纸压成墨）。
-   换成暖褐薄纱 —— 注意力仍收进战斗，但纸还是纸。 */
+   换成青墨薄纱 —— 注意力仍收进战斗，但纸还是纸。 */
 [data-theme="light"] .battle-overlay {
-  background: radial-gradient(120% 120% at 50% 30%, rgba(122, 100, 54, 0.22), rgba(84, 68, 38, 0.38));
+  background: radial-gradient(120% 120% at 50% 30%, rgba(58, 86, 66, 0.22), rgba(40, 62, 48, 0.38));
 }
 /* 行动条里「已退出战斗」的人：theme.css 给这两处写死了浅赭色（#b8807a / #cf8f86），
    那是配深底的。纸上换成同一支赭色的深版（底色本身还带 opacity:.8，所以再深一档）。 */
-[data-theme="light"] .tl-item.gone .tl-idx { color: #8a5a52; }
-[data-theme="light"] .tl-item.gone .tl-realm { color: #96463c; }
-/* 收起后的「战斗进行中」悬浮条不在壳内，取的是全站那支金（#8a6a1c，纸上 4.2:1 偏弱）
-   ⇒ 跟壳内用同一支深金。 */
-[data-theme="light"] .battle-chip { color: #6f5310; }
+[data-theme="light"] .tl-item.gone .tl-idx { color: #7d5148; }
+[data-theme="light"] .tl-item.gone .tl-realm { color: #8a3f34; }
+/* 收起后的「战斗进行中」悬浮条不在壳内，取的是全站那支墨青（#2c5f5c，纸上 4.2:1 偏弱）
+   ⇒ 跟壳内用同一支深青。 */
+[data-theme="light"] .battle-chip { color: #1f4d4a; }
 
 /* ------------------------------------------------------------
    16. 主题开关（主菜单的「纸色」栏 + 游戏顶栏的那一枚）
    ------------------------------------------------------------ */
 .splash .theme-switch {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
   margin-top: 20px;
+  align-self: flex-end;            /* 跟按钮列一起贴右 */
 }
-.theme-switch-label { font-size: 11px; letter-spacing: 2px; color: var(--text-faint); margin-right: 2px; }
+/* ⚠⚠ 2026-09-23 字号统一提到 15 / 14px。
+   原来是 11px（「纸色」）与 12px（「浓墨/淡墨」）—— 在压暗的封面画上，这一档
+   无论宋体还是点阵字都糊成一小撮，用户报「那几个字小的看不清」。
+   现在与副标题、版本号同档（15px / 14px）。 */
+.theme-switch-label { font-size: 15px; letter-spacing: 2px; color: var(--text-faint); margin-right: 2px; }
 .theme-opt {
-  min-height: 26px; padding: 3px 14px; font-size: 12px; letter-spacing: 2px;
+  min-height: 30px; padding: 4px 14px; font-size: 14px; letter-spacing: 2px;
   background: var(--btn-a); border: 1px solid var(--border); color: var(--text-dim); border-radius: 3px;
 }
+/* ⚠ 2026-09-23：「浓墨/淡墨」的字体由 §8 那条写满四个 :not 的规则负责
+   （写在这里的 `.splash .theme-opt` 只有 (0,2,0)，会被 §4 的 (0,4,1) 基线压掉，
+   真机量过 —— 那两颗算出来是 STKaiti）。「纸色」标签是 <span>，靠 .splash 继承即可。 */
 .theme-opt:hover:not(:disabled) { border-color: var(--gold-dark); color: var(--gold); }
 .theme-opt.on {
   background: var(--gold-grad); border-color: var(--gold-dark); color: var(--on-gold);
@@ -1334,11 +2411,11 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
 }
 
 .theme-toggle { display: inline-flex; align-items: center; gap: 6px; }
-/* 半白半墨的小圆点：一眼看出当前是哪套纸色 */
+/* 半墨半纸的小圆点：一眼看出当前是哪套纸色 */
 .theme-mark {
   width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto;
   border: 1px solid var(--gold-dark);
-  background: linear-gradient(90deg, #f6efdd 0 50%, #241c0e 50% 100%);
+  background: linear-gradient(90deg, #eef2e6 0 50%, #13393e 50% 100%);
 }
 
 /* ------------------------------------------------------------
@@ -1355,55 +2432,57 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
    组件一行都不用改，它们照旧取名字，只是取到的值变成了「墨」。
 
    两套主题在这里**共用同一套墨色**（纸都是浅的），只有纸本身的深浅不同 ——
-   玄墨下是一张夜里的旧宣纸（压暗一档，不然夜里晃眼），宣纸下是白天的新纸。
+   玄墨下是一张夜里的旧宣纸（压暗一档，不然夜里晃眼），淡墨下是白天的新纸。
    ------------------------------------------------------------ */
 
 /* ---- 木板与纸的专属令牌（两套主题各一次取值） ---- */
 :root {
-  /* 木纹：三段底色 + 两档纹理线，叠出"刨过的板子" */
-  --plank-a: #4a3a22; --plank-b: #3a2c18; --plank-c: #241a0d;
-  --plank-grain: rgba(0, 0, 0, 0.34);
-  --plank-grain-hi: rgba(255, 240, 200, 0.05);
-  --plank-edge: rgba(206, 176, 104, 0.42);
-  --plank-hi: rgba(255, 235, 180, 0.16);
-  --plank-shadow: -22px 0 64px rgba(0, 0, 0, 0.72);
+  /* 板身：三段底色 + 两档纹理线，叠出"刨过的板子"。
+     板身用**青石/楠木**色（偏冷、更闷），不用暖褐的胡桃木。 */
+  --plank-a: #37595c; --plank-b: #2a4749; --plank-c: #1a3032;
+  --plank-grain: rgba(0, 0, 0, 0.32);
+  --plank-grain-hi: rgba(220, 244, 240, 0.05);
+  --plank-edge: rgba(154, 206, 196, 0.38);
+  --plank-hi: rgba(226, 248, 244, 0.15);
+  --plank-shadow: -22px 0 64px rgba(0, 0, 0, 0.66);
 
-  /* 纸面：一档本体 + 三档"纸上的块"（浅块 / 更深块 / 凹槽） */
-  --sheet: #cfc1a0;
-  --sheet-sub: #c5b795;
-  --sheet-sub-2: #bbac88;
-  --sheet-sink: #b0a07c;
-  --sheet-stain: rgba(120, 96, 44, 0.14);      /* 陈化斑点 */
-  --sheet-stain-2: rgba(96, 74, 30, 0.22);     /* 纸边压深 */
-  --sheet-line: rgba(90, 70, 34, 0.30);
-  --sheet-line-2: rgba(120, 92, 34, 0.46);
-  --sheet-lift: 0 10px 28px rgba(0, 0, 0, 0.42), 0 1px 0 rgba(255, 250, 232, 0.35) inset;
+  /* 纸面：一档本体 + 三档"纸上的块"（浅块 / 更深块 / 凹槽）。
+     这张纸是「淡墨生宣」，所以底色偏青绿、不是米黄。 */
+  --sheet: #dbe4d0;
+  --sheet-sub: #d2dcc5;
+  --sheet-sub-2: #c8d4ba;
+  --sheet-sink: #bccab0;
+  --sheet-stain: rgba(52, 100, 82, 0.13);      /* 陈化斑点 */
+  --sheet-stain-2: rgba(40, 82, 66, 0.20);     /* 纸边压深 */
+  --sheet-line: rgba(44, 95, 92, 0.26);
+  --sheet-line-2: rgba(44, 95, 92, 0.44);
+  --sheet-lift: 0 10px 28px rgba(0, 0, 0, 0.36), 0 1px 0 rgba(248, 252, 245, 0.34) inset;
 
   /* 纸上的字 —— 纸总是浅的，所以这两套主题共用同一份墨 */
-  --sheet-ink: #241d10;
-  --sheet-ink-dim: #4e452c;
-  --sheet-ink-faint: #786a48;
-  --sheet-gold: #7a5710;
-  --sheet-gold-dim: #8d6b1c;
-  --sheet-gold-dark: #a8894a;
+  --sheet-ink: #17231e;
+  --sheet-ink-dim: #3b5047;
+  --sheet-ink-faint: #5f7469;
+  --sheet-gold: #225250;
+  --sheet-gold-dim: #2a5f5c;
+  --sheet-gold-dark: #437a76;
 }
 [data-theme="light"] {
-  --plank-a: #c69c63; --plank-b: #b0854f; --plank-c: #956d3c;
-  --plank-grain: rgba(84, 58, 22, 0.26);
-  --plank-grain-hi: rgba(255, 250, 236, 0.34);
-  --plank-edge: rgba(110, 84, 36, 0.55);
-  --plank-hi: rgba(255, 250, 236, 0.5);
-  --plank-shadow: -20px 0 56px rgba(70, 50, 20, 0.5);
+  --plank-a: #8fa98c; --plank-b: #7c9a7c; --plank-c: #648566;
+  --plank-grain: rgba(30, 66, 50, 0.24);
+  --plank-grain-hi: rgba(248, 252, 244, 0.34);
+  --plank-edge: rgba(30, 66, 50, 0.5);
+  --plank-hi: rgba(248, 252, 244, 0.5);
+  --plank-shadow: -20px 0 56px rgba(30, 58, 40, 0.46);
 
-  --sheet: #f6edd8;
-  --sheet-sub: #efe4c9;
-  --sheet-sub-2: #e7dabb;
-  --sheet-sink: #ddcfab;
-  --sheet-stain: rgba(150, 122, 62, 0.10);
-  --sheet-stain-2: rgba(140, 112, 56, 0.16);
-  --sheet-line: rgba(120, 96, 40, 0.24);
-  --sheet-line-2: rgba(120, 92, 34, 0.42);
-  --sheet-lift: 0 12px 32px rgba(70, 50, 20, 0.34), 0 1px 0 rgba(255, 253, 246, 0.7) inset;
+  --sheet: #eef2e6;
+  --sheet-sub: #e6ecdd;
+  --sheet-sub-2: #dce4d1;
+  --sheet-sink: #ced8c0;
+  --sheet-stain: rgba(80, 128, 96, 0.10);
+  --sheet-stain-2: rgba(64, 110, 82, 0.15);
+  --sheet-line: rgba(44, 95, 92, 0.22);
+  --sheet-line-2: rgba(44, 95, 92, 0.40);
+  --sheet-lift: 0 12px 32px rgba(30, 58, 40, 0.30), 0 1px 0 rgba(250, 253, 248, 0.7) inset;
 }
 
 /* ---- 局部重设：把名册整页换成「纸上的墨」 ---- */
@@ -1433,6 +2512,14 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
   --btn-hover-a: var(--sheet-sub-2); --btn-hover-b: var(--sheet-sink);
   --btn-danger-a: rgba(156, 58, 34, 0.14);
   --btn-danger-b: rgba(156, 58, 34, 0.20);
+  /* ⚠⚠ 上面那股淡红是**半透明**的，它下面还垫着一层牌面衬底（全站按钮的
+     `background-color: var(--sm-ink-base)`）。这一行原来**漏了**，于是衬底沿用全局的
+     深墨绿（浅色主题 #3d5a4c / 深色主题 #0b2427），深棕红字压上去 ⇒ 对比度 1.03:1，
+     名册里 NPC 行右侧那颗「删」字整个糊掉（2026-09-24 用户报「看不清」）。
+     补成纸色，那股淡红才真正落在"纸上"，符合作者本意。
+     ⚠ 只影响半透明的那个：本块内 --btn-a/b、--btn-hover-a/b、--gold-btn-* 都是**不透明**的，
+       会把衬底整个盖住，所以这一行不会动到其它按钮（探针实测：新建按钮 4.03 不变）。 */
+  --sm-ink-base: var(--sheet-sub);
 
   --text: var(--sheet-ink);
   --text-dim: var(--sheet-ink-dim);
@@ -1450,23 +2537,23 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
   --border-gold: var(--sheet-line-2);
   --hair: rgba(120, 92, 34, 0.16);
 
-  --green: #3f6b26;  --green-bg: rgba(63, 107, 38, 0.12);
-  --red: #9c3a22;    --red-bg: rgba(156, 58, 34, 0.12);
-  --blue: #2b5f8c;   --blue-bg: rgba(43, 95, 140, 0.12);
-  --danger: #9c3a22;
-  --danger-text: #8e3520;
+  --green: #31601f;  --green-bg: rgba(49, 96, 31, 0.12);
+  --red: #8e3a1c;    --red-bg: rgba(142, 58, 28, 0.12);
+  --blue: #23557f;   --blue-bg: rgba(35, 85, 127, 0.12);
+  --danger: #8e3a1c;
+  --danger-text: #7d3013;
 
-  --thumb-a: #b8a67e; --thumb-b: #a1906a;
-  --thumb-a-hi: #a89570; --thumb-b-hi: #97845e;
+  --thumb-a: #a3b394; --thumb-b: #8fa080;
+  --thumb-a-hi: #94a585; --thumb-b-hi: #809173;
 
-  --scrim: rgba(90, 70, 34, 0.12);
-  --scrim-strong: rgba(90, 70, 34, 0.18);
+  --scrim: rgba(50, 82, 62, 0.12);
+  --scrim-strong: rgba(50, 82, 62, 0.18);
 
-  --shadow-1: 0 1px 2px rgba(90, 70, 34, 0.16);
-  --shadow-2: 0 4px 14px rgba(90, 70, 34, 0.16);
-  --shadow-3: 0 16px 44px rgba(80, 62, 26, 0.24);
-  --shadow-soft: 0 2px 6px rgba(90, 70, 34, 0.12), 0 10px 26px rgba(90, 70, 34, 0.14);
-  --shadow-lift: 0 6px 16px rgba(90, 70, 34, 0.16), 0 18px 40px rgba(90, 70, 34, 0.18);
+  --shadow-1: 0 1px 2px rgba(40, 66, 48, 0.16);
+  --shadow-2: 0 4px 14px rgba(40, 66, 48, 0.16);
+  --shadow-3: 0 16px 44px rgba(32, 54, 38, 0.24);
+  --shadow-soft: 0 2px 6px rgba(40, 66, 48, 0.12), 0 10px 26px rgba(40, 66, 48, 0.14);
+  --shadow-lift: 0 6px 16px rgba(40, 66, 48, 0.16), 0 18px 40px rgba(40, 66, 48, 0.18);
 }
 
 /* ---- 纸上那几条「写死的浅金」要改掉 ----
@@ -1477,12 +2564,81 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
 .char-drawer .char-item:hover { background: rgba(122, 87, 16, 0.10); }
 .char-drawer .char-item.active { background: rgba(122, 87, 16, 0.18); }
 .char-drawer .lbl-note { background: rgba(122, 87, 16, 0.12); }
+/* ---- 名册的分栏（基本信息 / 装备 / …）：一横栏排开，不做成一个个方块 ----
+   ⚠ 现状为什么是一堆方块、还折成两排：guigu.css §4 的按钮基线
+       `button:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs)` 权重 (0,4,1)，
+     而 theme.css / guigu.css 里给标签页写的 `.tabs button` 只有 (0,1,1) —— **压不过**，
+     于是每个标签都被套上"牌面"（7px 边框带 + 左右各 14px 留白 + 渐变底）。
+     9 个标签加起来撑不下详情列，theme.css 的 `flex-wrap: wrap` 就把它们折成两排。
+   这里就地摘掉牌面、回到 theme.css 的原意（纯文字 + 一道下划线），并锁死不换行。
+   下划线由 guigu-fx.css 的 `.tabs button::after` 提供（金线从中间向两侧铺开），不用重复做。
+   ⚠ 只作用在 .char-drawer 内：`tabs` 在建号向导等页面也用，别一把刷。 */
+.char-drawer .tabs {
+  flex-wrap: nowrap;        /* 一横栏 —— 原来那条 wrap 就是折成两排的元凶 */
+  gap: 0;
+  /* 不加 overflow-x —— 用户明确不要滚动条。实测这 9 个标签正好撑满详情列
+     （容器 620px、标签合起来也是 620px），换成更宽的字体也还有余量。 */
+  margin-bottom: var(--s3);
+}
+/* ⚠ 选择器必须把那串 :not(...) 抄足 —— 基线 (0,4,1) 就挡在那儿。 */
+.char-drawer .tabs button:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  border: none;             /* 摘掉 7px 边框带 —— 它画不出东西，却实占 14px 宽 */
+  border-radius: 0;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  color: var(--text-dim);
+  min-height: 30px;
+  padding: 5px 6px;
+  /* ⚠ 字体走**界面字体**，不走 --font-serif（楷体）。
+     原因：guigu 636 那句 `button { font-family: var(--font-serif) }` 把所有按钮都指给了
+     "标题与强调"那支字，而 fontPrefs.js 里「界面字体」槽的说明白纸黑字写着管
+     "菜单、按钮、列表、表单" —— 按钮本来就该用界面字。楷体是单字重，12–13px 下笔画发虚，
+     用户 2026-09-24 报「这一横栏的字太细太小」。这里就地改回界面字，并把 12px 提到 13px。 */
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  flex: 1 1 auto;           /* 先按内容分配、余量再均摊：撑满整条，又不压窄任何一个标签 */
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+}
+.char-drawer .tabs button:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs):hover:not(:disabled) {
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  color: var(--gold);
+}
+.char-drawer .tabs button.active:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  color: var(--gold);
+  background: transparent;
+  font-weight: 600;
+}
+/* ---- 名册里的「危险动作」按钮：字色再压深一档 ----
+   补上衬底之后光靠衬底还不够：深色主题的纸（#d2dcc5）比浅色主题（#e6ecdd）暗一档，
+   最差那个面只有 4.01:1，仍差一点。这里把字色从 --red(#8e3a1c) 换成同一块里已经
+   定义好的 --danger-text(#7d3013)——它本来就是「danger 的文字色」，两套主题分别到
+   5.6 / 4.8，稳过 4.5。（悬停态的字色本来就是 --danger-text，所以悬停反馈改由
+   红光 box-shadow 承担，仍看得出按下去了。）
+   ⚠ 选择器必须把那串 :not(...) 抄足：guigu.css 的 button.danger 基线靠它把权重顶到
+     (0,5,1)，只写 `.char-drawer button.danger`（0,2,1）压不过，会被静默忽略。 */
+.char-drawer button.danger:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs) {
+  color: var(--danger-text);
+}
 /* 物品详情弹窗落在纸上，它的四角云纹是写死深金的内联 SVG —— 纸上看不见，换成浅金 */
 .char-drawer .modal { border-color: var(--sheet-line-2); }
-.theme-toggle.on-light .theme-mark { background: linear-gradient(90deg, #fdf8ec 0 50%, var(--gold-dim) 50% 100%); }
+.theme-toggle.on-light .theme-mark { background: linear-gradient(90deg, #eef2e6 0 50%, var(--gold-dim) 50% 100%); }
 
-/* 全站唯一使用行楷的地方：主菜单大标题。字号够大（40px+），行楷才立得住。 */
-.splash .main-title { font-family: var(--font-title); }
+/* 全站唯一使用「标题字」（默认＝自备的飞波正点体，见 §0）的地方：进入页面。
+   ⚠ 2026-09-23 第一版：这里原来写的是「行楷才立得住」，后来默认字体换成自备的点阵装饰体，
+   它同样是「越粗越大越好看」的招牌字 ⇒ 当时这条只给大标题用，
+   其余标题/按钮一律走 --font-serif，免得满屏糊字。
+   ⚠⚠ 2026-09-23 第二刀（用户：「进入页面的字体改成 photo 里那支，不要加粗」）：
+   范围从「只有大标题」扩到**整个进入页面**——大标题、副标题、版本号、三个按钮、
+   「纸色」那一栏全走它；字重全摁回 400（封面字只有 400 一档，没有真粗体）。
+   真正的生效点在 §8 开头那条 `.splash { font-family: … }`，
+   这一条只是给大标题再钉一次（它自己声明过字体，不靠继承）。
+   ⚠⚠ 变量名是 --font-cover（见 :root 开头）：**这条在文件末尾，同特异性 (0,2,1) 下它压过 §8 那条**，
+     所以这里写错名字的话，整页照样会被字体偏好改成宋体 —— 两处必须一致。 */
+.splash .main-title { font-family: var(--font-cover); }
 
 /* ============================================================
    §18 字体选择器（设置页 · 显示与字体）
@@ -1529,6 +2685,67 @@ button.inv-item-row:hover { background: rgba(214, 186, 110, 0.09); }
 .font-preview--title { font-family: var(--font-serif); font-size: 22px; line-height: 1.6; letter-spacing: 2px; }
 /* 正文示例的字号/行距由 JSX 行内给（跟着上面两个滑杆走） */
 .font-preview--prose { font-family: var(--font-prose); }
+
+/* ============================================================
+   思考栏（正文上方那一条折叠）
+   ------------------------------------------------------------
+   AI 的思维链不给正文，但玩家要能看得到：折成一条细栏挂在正文前面，
+   点开才铺内容。三条约定：
+     · 折叠态只占一行，不挤占正文；
+     · 生成中标题走主色、带一个脉动点，说明这一段还在长；
+     · 展开体限高内滚，长思维链不会把正文顶出屏幕。
+   颜色全走语义令牌，浓墨 / 淡墨两套自动跟；淡墨下凹槽不明显，文末单独补一次底。
+   ============================================================ */
+.think-box {
+  margin: 0 0 var(--s4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gold-dark);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  overflow: hidden;
+}
+.think-head {
+  display: flex; align-items: center; gap: var(--s2);
+  width: 100%; padding: 7px 11px;
+  border: 0; background: none; cursor: pointer;
+  font-family: inherit; font-size: var(--fs-xs);
+  color: var(--text-faint); text-align: left;
+}
+/* 悬停垫一层主色淡染（两套主题各有一份取值），让人看得出这行是可以点的 */
+.think-head:hover { color: var(--text-dim); background: var(--gold-tint); }
+.think-head:focus-visible { outline: 2px solid var(--gold-dim); outline-offset: -2px; }
+.think-arrow {
+  font-size: 11px; line-height: 1; color: var(--gold-dark);
+  transition: transform .16s ease;
+}
+.think-box.open .think-arrow { transform: rotate(90deg); }
+.think-label { letter-spacing: 0.1em; }
+.think-meta { margin-left: auto; font-variant-numeric: tabular-nums; opacity: 0.8; }
+.think-box.live .think-label { color: var(--gold-dim); }
+.think-box.live .think-meta::before {
+  content: ''; display: inline-block; width: 5px; height: 5px; margin-right: 6px;
+  vertical-align: 1px; border-radius: 50%;
+  background: currentColor; animation: thinkPulse 1.1s ease-in-out infinite;
+}
+@keyframes thinkPulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+.think-body {
+  max-height: 260px; overflow-y: auto; overscroll-behavior: contain;
+  margin: 0 10px 10px; padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-code);
+  color: var(--text-dim);
+  font-size: var(--fs-sm); line-height: 1.75;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  animation: thinkIn .16s ease-out;
+}
+@keyframes thinkIn { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+
+/* 淡墨主题：--bg-2 与 --surface-code 两个令牌几乎同色，凹槽看不出来，改用主色淡染 + 内阴影 */
+[data-theme="light"] .think-body {
+  background: rgba(44, 95, 92, 0.07);
+  box-shadow: inset 0 1px 3px rgba(44, 95, 92, 0.09);
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

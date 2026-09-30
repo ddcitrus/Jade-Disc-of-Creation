@@ -49,12 +49,12 @@ export function sanitizeSaveInPlace(save) {
   const fixed = [];
   if (!save || typeof save !== 'object') return fixed;
 
-  // 世界书已改为跨存档共用（server/data/worldbook.json），存档里不再保留该字段。
+  // 世界书跨存档共用（server/data/worldbook.json），存档里不保留该字段。
   // 必须放在最前面：下面遇到缺 charSnapshots 的存档会提前 return，这条不能跟着被跳过。
-  // 旧版前端（内存里还留着 worldbook 的 bundle）整份写回时，靠这条保证磁盘不被写脏。
+  // 老版本前端（内存里还留着 worldbook 的 bundle）整份写回时，靠这条保证磁盘不被写脏。
   if (save.worldbook !== undefined) {
     delete save.worldbook;
-    fixed.push('worldbook 已删除（世界书改为跨存档共用，见 server/data/worldbook.json）');
+    fixed.push('worldbook 已删除（见 server/data/worldbook.json）');
   }
 
   const snaps = save.charSnapshots;
@@ -72,21 +72,30 @@ export function sanitizeSaveInPlace(save) {
   for (const [cid, snap] of Object.entries(snaps)) {
     if (!snap || typeof snap !== 'object') continue;
 
-    // 主角专有块已废弃：连同旧档里残留的一起清掉（进度先搬到 identity.realmProgress）
+    // 主角专有块：连同旧档里残留的一起清掉（进度先搬到 identity.realmProgress）
     if (stripPlayerBlockInPlace(snap)) {
-      fixed.push(`${cid}.player 已删除（主角专有块，2026-09-22 废弃；进度并入 identity.realmProgress）`);
+      fixed.push(`${cid}.player 已删除（进度并入 identity.realmProgress）`);
     }
 
-    // 修炼速度缓存已废弃（2026-09-22 删）：它是程序按「不含运气」的口径算出来写进快照的，
+    // 修炼速度缓存：它是程序按「不含运气」的口径算出来写进快照的，
     // 与卡片上 AI 现算的数字是两套口径。公式与数据现在交给 AI，旧档残留一并清掉。
     if (snap.identity && typeof snap.identity === 'object' && snap.identity.cultivation !== undefined) {
       delete snap.identity.cultivation;
-      fixed.push(`${cid}.identity.cultivation 已删除（程序预算的修炼速度，2026-09-22 废弃）`);
+      fixed.push(`${cid}.identity.cultivation 已删除（程序预算的修炼速度）`);
     }
 
     if (snap.bio && isPersonalityLeak(snap.bio.longTermGoal)) {
       snap.bio.longTermGoal = '';
       fixed.push(`${cid}.bio.longTermGoal 清掉串门的性格摘要`);
+    }
+
+    // 坐标：AI 会把它写成 "12,45" 这类文本（协议里给的就是不带方括号的写法），
+    // 界面按数字数组渲染（.join），字符串会让整页崩掉。这里统一成 [x, y]。
+    const co = snap.action && typeof snap.action === 'object' ? snap.action.coordinates : undefined;
+    if (co !== undefined && !Array.isArray(co)) {
+      const m = String(co ?? '').trim().match(/^(-?\d+)\s*[,\s]\s*(-?\d+)$/);
+      snap.action.coordinates = m ? [Number(m[1]), Number(m[2])] : [0, 0];
+      fixed.push(`${cid}.action.coordinates 归一为数组`);
     }
 
     if (!snap.identity) continue;

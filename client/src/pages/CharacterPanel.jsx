@@ -9,15 +9,27 @@ import { safeEquipment, NPC_COLUMN_LABELS } from '../engine/mortalCommands.js';
 import { buildCharNameIndex, relationRows } from '../engine/charNames.js';
 import {
   snapshotFromCharacter, validateSnapshot, slotValueText, EQUIP_SLOT_LABELS,
-  getEquipSlot, setEquipSlot, newEquipmentSlots, normalizeEquipment, attrRows, attrBonusHint, ATTR_LABELS, characterAttrMods, characterClampBonus,
+  getEquipSlot, setEquipSlot, newEquipmentSlots, normalizeEquipment, attrRows, attrRowView, attrBonusHint, ATTR_LABELS, characterAttrMods, characterClampBonus,
   invItemName, invItemQty, invItemSubtype, invItemGrade, invItemModsText, modsToText, parseModsText,
   makeInvItem, normalizeInvItem, invItemMatchesSlot, INV_ITEM_TYPES, INV_SUBTYPE_CANDIDATES, INV_GRADE_CANDIDATES,
-  equippedSlotMap, equippedSlotsOf, ensureInvEntry,
+  equippedSlotMap, equippedSlotsOf, ensureInvEntry, toCoords,
 } from '../data/snapshotSchema.js';
 import { buildSkill, skillCoefText, skillLineText, poolCtxOf, bandOf, SKILL_TYPES, DMG_KINDS, ATTACK_RANGE_MIN, ATTACK_RANGE_MAX, rangeLabel, diceTextForGrade, normalizeAttackRange } from '../data/skillCodex.js';
+import { parseGrade, normalizeGrade, gradeWithRealm } from '../data/gradeUtils.js';
+import { promiseSummaryText } from '../data/snapshotV2.js';
+// 性格：存的是程序翻好的中文短版（见 personalityCodex.js）。界面显示长版（每项带一句解释），
+// 长版只在这一页用，不进提示词；注入给 AI 的与快照里存的都是短版。
+import { personalityLongText, PERSONALITY_CODE_HINT } from '../data/personalityCodex.js';
+import { cultivationRate } from '../data/cultivationParams.js';
 import { useToast, useConfirm, Spinner } from '../ui.jsx';
 
 const TABS = ['基本信息', '装备', '储物袋', '属性', '技能', '特质', '性格', '关系', '快照'];
+
+// 坐标只按数字数组渲染：老档/桥接指令里可能是 "12,45" 这类文本，直接 .join 会把整页搞崩
+const coordText = (v) => {
+  const c = toCoords(v);
+  return c ? c.join(',') : '';
+};
 
 // 数值表约束开关（角色名册 · 基本信息）：豁免后该角色不参与数值表强制校界
 // 标记落在角色本体（save.character.numericClamp / npc.numericClamp），缺省 = 受约束
@@ -42,7 +54,9 @@ function NumericClampRow({ value, onChange, globalOff }) {
 }
 
 // 查看人物：右侧滑出面板（不占据全部空间，❌ 关闭）
-export default function CharacterPanel({ save, updateSave, saveNow, onClose, settings }) {
+// onSnapshotSaved(charId, snapshotObj)：某人在快照页点了「保存修改」后回调。
+// 现在没别的用途 —— 只有「刷新当前回合的存档点」需要它（见 GameDashboard.refreshTurnCheckpoint）。
+export default function CharacterPanel({ save, updateSave, saveNow, onClose, settings, onSnapshotSaved = null }) {
   const c = save.character;
   const [selId, setSelId] = useState('protagonist'); // 主角默认选中
   const [tab, setTab] = useState(0);
@@ -117,10 +131,13 @@ export default function CharacterPanel({ save, updateSave, saveNow, onClose, set
           </div>
           {CHARACTER_GROUPS.map(g => {
             const list = g === '主角' ? [{ id: 'protagonist', name: c.name, subtitle: `玩家 · ${c.realm?.name} · ${c.race?.name}` }] : filteredNpcs.filter(n => n.group === g);
-            if (!list.length) return null;
+            // 在场/离场两组恒显（含 0 计数）：分组是「人在不在眼前」的实时账，空着也是信息；
+            // 其它组（妖兽等）没有成员时不占版面
+            if (!list.length && g !== '在场人物' && g !== '离场人物') return null;
             return (
               <div className="char-group" key={g}>
                 <div className="char-group-title">{g} <span className="tab-cnt">{list.length}</span></div>
+                {!list.length && <div className="char-item-sub" style={{ padding: '2px 8px 6px' }}>暂无</div>}
                 {list.map(n => (
                   <div key={n.id} className={`char-item ${selId === n.id ? 'active' : ''}`} onClick={() => { setSelId(n.id); setTab(0); }}>
                     <div>
@@ -160,9 +177,9 @@ export default function CharacterPanel({ save, updateSave, saveNow, onClose, set
         <div className="char-detail-col">
           <div className="inner">
             {isProtagonist ? (
-              <ProtagonistDetail save={save} updateSave={updateSave} saveNow={saveNow} tab={tab} setTab={setTab} settings={settings} />
+              <ProtagonistDetail save={save} updateSave={updateSave} saveNow={saveNow} tab={tab} setTab={setTab} settings={settings} onSnapshotSaved={onSnapshotSaved} />
             ) : sel ? (
-              <NpcDetail npc={sel} save={save} updateSave={updateSave} saveNow={saveNow} tab={tab} setTab={setTab} updateNpc={updateNpc} relEditing={relEditing} setRelEditing={setRelEditing} settings={settings} />
+              <NpcDetail npc={sel} save={save} updateSave={updateSave} saveNow={saveNow} tab={tab} setTab={setTab} updateNpc={updateNpc} relEditing={relEditing} setRelEditing={setRelEditing} settings={settings} onSnapshotSaved={onSnapshotSaved} />
             ) : (
               <div className="empty-tip">选择左侧角色查看详情</div>
             )}
@@ -191,15 +208,17 @@ function DetailHeader({ name, subtitle, tab, setTab, children }) {
 }
 
 // ---- 主角：所有栏目直接读快照（save.charSnapshots.B1，AI 注入同一数据源） ----
-function ProtagonistDetail({ save, updateSave, saveNow, tab, setTab, settings }) {
+function ProtagonistDetail({ save, updateSave, saveNow, tab, setTab, settings, onSnapshotSaved = null }) {
   const c = save.character;
   const toast = useToast();
+  const confirmDlg = useConfirm();
   // 快照数据源：名册/装备/属性/物品全部从快照读取（与 AI 提示词注入一致）
   const snap = save.charSnapshots?.B1 || snapshotFromCharacter(c, {
     id: 'B1', kind: 'player', isPlayer: true, locationName: save.world?.location?.name,
   });
   const idt = snap.identity || {};
   const act = snap.action || {};
+  const eco = snap.economy || {};
   const numericExempt = save.character?.numericClamp === false;
 
   // 快照变更统一入口：写存档 + 落服务端（AI 下一回合即可读到实时装备）
@@ -210,7 +229,12 @@ function ProtagonistDetail({ save, updateSave, saveNow, tab, setTab, settings })
     updateSave(s);
     saveNow(s);
     persistCharSnapshots(save.id, { B1: next });
-  }, [snap, save, updateSave, saveNow]);
+    // 手改必须同步刷新「最近一个带 payload 的 ai 块」（= 回退的存档点）：
+    // 回退是把那回合的整份状态盖回来，这次改动不在里面＝一按回退就白改
+    //（2026-09-29 用户实测：回合后改储物袋 → 打一回合 → 回退，改动丢失）。
+    // 快照页「保存修改」一直有这步（见 SnapshotTab.saveSnapshot），这里补齐同类入口。
+    onSnapshotSaved?.('B1', next);
+  }, [snap, save, updateSave, saveNow, onSnapshotSaved]);
 
   // 数值表约束开关：写角色本体（save.character.numericClamp），豁免后不参与强制校界
   const setCharClamp = (v) => {
@@ -284,6 +308,40 @@ function ProtagonistDetail({ save, updateSave, saveNow, tab, setTab, settings })
     });
     toast('ok', `已保存「${item.name}」`);
   };
+  // 丢弃：数量大于 1 时只丢一个（条目留着，数量减一），丢到最后一个才整条移除。
+  // 整条移除时把它从装备槽里一并摘掉 —— 槽位里留一件储物袋里已经没有的装备，
+  // 属性页照旧算它的加成，玩家却再也卸不下来（列表里已经没有这一条了）。
+  const discardInventoryItem = async (item) => {
+    const nm = invItemName(item);
+    if (!nm) return;
+    const qty = invItemQty(item);
+    const slots = equippedSlotsOf(equippedMap, nm);
+    const ok = await confirmDlg({
+      title: qty > 1 ? '丢弃一个' : '丢弃物品',
+      text: qty > 1
+        ? `丢掉「${nm}」一个？还剩 ${qty - 1} 个。`
+        : `丢掉「${nm}」？${slots.length ? `它正穿在「${slots.join('、')}」上，会一并卸下。` : ''}丢掉之后储物袋里就没有这一件了。`,
+      danger: true, okText: '丢弃',
+    });
+    if (!ok) return;
+    patchSnapshot(sn => {
+      const list = [...(sn.inventory || [])];
+      const i = list.findIndex(x => invItemName(x) === nm);
+      if (i < 0) return;
+      const cur = list[i];
+      if (qty > 1 && cur && typeof cur === 'object') {
+        const next = { ...cur, quantity: qty - 1 };
+        if (next.count != null) delete next.count;   // 数量只留一份，别让 quantity / count 两个字段各说各的
+        list[i] = next;
+      } else {
+        list.splice(i, 1);
+        sn.equipment = clearEquipSlotsByName(sn.equipment, nm);
+      }
+      sn.inventory = list;
+    });
+    setInvDetail(null);
+    toast('ok', qty > 1 ? `已丢弃「${nm}」一个，还剩 ${qty - 1} 个` : `已丢弃「${nm}」`);
+  };
 
   // 性格维度：拖动时即时反映到界面，落盘合并成一次，避免一拖一串请求；
   // 写入前统一走 normalizeDims，把老数据里用右名当键的写法一并折算掉。
@@ -314,18 +372,22 @@ function ProtagonistDetail({ save, updateSave, saveNow, tab, setTab, settings })
 
       {tab === 0 && (
         <>
-          <div className="kv"><span className="k">姓名</span><span className="v">{T(idt.name, '—')}</span></div>
-          <div className="kv"><span className="k">身份</span><span className="v">{T(c.origin?.name)}</span></div>
-          <div className="kv"><span className="k">性别</span><span className="v">{T(idt.gender, '—')}</span></div>
-          <div className="kv"><span className="k">种族</span><span className="v">{T(c.race?.name)}</span></div>
-          <div className="kv"><span className="k">境界</span><span className="v">{T(idt.realm, '—')}</span></div>
-          <div className="kv"><span className="k">灵根</span><span className="v">{T(idt.linggen, '—')}</span></div>
+          {/* 顺序与用词按用户给的清单来（2026-09-27，NPC 基本信息页同一份清单，改一处要同步另一处）：
+              姓名·性别 / 身份·种族 / 年龄·寿元 / 灵根 / 总修炼倍率 / 境界·进度 / 灵石 / 当前行为 / 位置。
+              这页原先多出的「人称」「性格」「着装」三行随本次统一版式删掉。
+              ⚠ 「身份」取快照的 identityRoles（AI 用 role 指令维护的履历），不是建号时选的出身；
+              「种族」反过来**优先建号时的设定**（c.race.name），快照 identity.race 作回落 ——
+              快照里那份是 AI 抄的简写（实测「高等精灵」被抄成「精灵」），左侧名册显示的是完整名，
+              两个来源摆同一屏会打架。2026-09-27 统一版式时定的：会变的字段（身份）读快照，不变的读本体。 */}
+          <div className="kv"><span className="k">姓名 / 性别</span><span className="v">{T(idt.name, '—')} · {T(idt.gender, '—')}</span></div>
+          <div className="kv"><span className="k">身份 / 种族</span><span className="v">{T(rolesText(idt.identityRoles), '—')} · {T(c.race?.name, idt.race || '—')}</span></div>
           <div className="kv"><span className="k">年龄 / 寿元</span><span className="v">{idt.age ?? '—'} 岁 / {idt.shouyuan ?? '—'}</span></div>
-          <div className="kv"><span className="k">人称</span><span className="v">{c.person}</span></div>
-          <div className="kv"><span className="k">性格</span><span className="v">{T(idt.personality, '—')}</span></div>
+          <div className="kv"><span className="k">灵根</span><span className="v">{T(idt.linggen, '—')}</span></div>
+          <CultRateRow snap={snap} settings={settings} />
+          <div className="kv"><span className="k">境界 / 境界进度</span><span className="v">{T(idt.realm, '—')} · {idt.realmProgress ?? 0}</span></div>
+          <div className="kv"><span className="k">灵石</span><span className="v">{eco.spiritStones ?? '—'}</span></div>
           <div className="kv"><span className="k">当前行为</span><span className="v" style={{ fontSize: 12 }}>{T(act.action, '未记录')}</span></div>
-          <div className="kv"><span className="k">位置</span><span className="v" style={{ fontSize: 12 }}>{T(act.location, save.world?.location?.name || '—')}{(act.coordinates || []).length ? ` (${act.coordinates.join(',')})` : ''}</span></div>
-          {act.attire && <div className="kv"><span className="k">着装</span><span className="v" style={{ fontSize: 12 }}>{T(act.attire)}</span></div>}
+          <div className="kv"><span className="k">位置</span><span className="v" style={{ fontSize: 12 }}>{T(act.location, save.world?.location?.name || '—')}{coordText(act.coordinates) ? ` (${coordText(act.coordinates)})` : ''}</span></div>
           <NumericClampRow
             value={save.character?.numericClamp}
             onChange={setCharClamp}
@@ -343,12 +405,10 @@ function ProtagonistDetail({ save, updateSave, saveNow, tab, setTab, settings })
           <div className="btn-row" style={{ marginBottom: 8 }}>
             <button className="small primary" onClick={() => setInvAddOpen(true)}>＋ 添加物品</button>
           </div>
-          {inventory.length ? inventory.map((it, i) => (
-            <button className="inv-line inv-item-row" key={i} onClick={() => setInvDetail(it)} title="点击查看详情">
-              <InvItemLines it={it} equippedSlots={equippedSlotsOf(equippedMap, invItemName(it))} />
-            </button>
-          )) : <div className="empty-tip">储物袋空空如也</div>}
-          <div className="hint" style={{ marginTop: 8 }}>点击物品查看详情；装备请切到「装备」页，点击槽位从储物袋选择。标着「已装备」的物品此刻正穿在身上，与装备栏里那件是同一样东西，不是两件。</div>
+          {inventory.length ? (
+            <InvList inventory={inventory} equippedMap={equippedMap} onPick={setInvDetail} />
+          ) : <div className="empty-tip">储物袋空空如也</div>}
+          <div className="hint" style={{ marginTop: 8 }}>点击物品查看详情，详情里可以丢弃；装备请切到「装备」页，点击槽位从储物袋选择。标着「已装备」的就是身上这件，不是另有一件。</div>
         </>
       )}
 
@@ -389,8 +449,8 @@ function ProtagonistDetail({ save, updateSave, saveNow, tab, setTab, settings })
         return (
           <div className="card" key={i} style={{ marginBottom: 8 }}>
             <div className="row1"><span className="name">{name}</span>{rarity ? <span className="cost">{rarity}</span> : null}</div>
-            {desc ? <div className="desc">{desc}</div> : null}
-            {effects ? <div className="desc" style={{ color: 'var(--text-dim)' }}>{effects}</div> : null}
+            {desc ? <div className="desc">{T(desc)}</div> : null}
+            {effects ? <div className="desc" style={{ color: 'var(--text-dim)' }}>{T(effects)}</div> : null}
             {modsText ? <div className="trait-mods-line">词条：{modsText}</div> : null}
           </div>
         );
@@ -419,11 +479,16 @@ function ProtagonistDetail({ save, updateSave, saveNow, tab, setTab, settings })
         </>
       )}
 
-      {tab === 8 && <SnapshotTab save={save} updateSave={updateSave} charId="B1" kind="player" name={c.name} settings={settings} />}
+      {tab === 8 && <SnapshotTab save={save} updateSave={updateSave} charId="B1" kind="player" name={c.name} settings={settings} onSnapshotSaved={onSnapshotSaved} />}
 
       {invDetail && (
         <ItemDetailModal item={invDetail} onClose={() => setInvDetail(null)}
-          actions={<button className="primary" onClick={() => { setInvEdit(invDetail); setInvDetail(null); }}>编辑</button>} />
+          actions={<>
+            <button className="danger" onClick={() => discardInventoryItem(invDetail)}>
+              {invItemQty(invDetail) > 1 ? '丢弃一个' : '丢弃'}
+            </button>
+            <button className="primary" onClick={() => { setInvEdit(invDetail); setInvDetail(null); }}>编辑</button>
+          </>} />
       )}
       {invAddOpen && <ItemAddModal onAdd={addInventoryItem} onClose={() => setInvAddOpen(false)} />}
       {invEdit && <ItemAddModal initial={invEdit} onSave={saveInventoryItem} onClose={() => setInvEdit(null)} />}
@@ -441,16 +506,81 @@ const SLOT_COMPAT = {
   technique: ['功法', '秘籍', '书籍'],
 };
 
-// 物品元信息一行：类型 · 子类 · 品阶（空段自动省略）
+// 物品元信息一行：类型 · 子类 · 品阶（空段自动省略）。
+// 品阶后面由程序缀上对应境界（「二十品（大乘初期）」）—— 玩家自己也得看得见，
+// 否则面板上写着「二十品」而正文里说成筑基货色，谁也不知道该信哪个。
 export function invItemMetaText(it) {
   if (!it || typeof it !== 'object') return '';
-  return [it.type, invItemSubtype(it), invItemGrade(it)].filter(Boolean).join(' · ');
+  return [it.type, invItemSubtype(it), gradeWithRealm(invItemGrade(it))].filter(Boolean).join(' · ');
 }
 
-// ===== 储物袋行：名称/数量一行，元信息、词条、描述各自成行 =====
-// 历史 bug：旧实现把「名称 · 类型 · 描述 · 词条」整串塞进 .kv 的 .k 列（固定 100px + nowrap），
-// 长文本横向溢出到右侧「×数量 · 来源」上，看起来像文字重叠。这里改为纵向多行布局，
-// 名称单独占一行（超长省略号），描述换到下一行，任何长度都不会再压到右侧。
+// ===== 品阶色档（2026-09-25 用户口述：白灰绿蓝紫橙红，白最低红最高）=====
+// 1~36 品按「五品一档」切：白 1-5 · 灰 6-10 · 绿 11-15 · 蓝 16-20 · 紫 21-25 · 橙 26-30 · 红 31-36
+// （36 = 5×6+6，末档收 6 品；档位顺序由用户给的颜色表定，不是我拍的）。
+// 认不出品阶（空 / 「残次品」这类自由描述 / AI 写的怪词）返回 'none'。
+// ⚠ **只用于界面着色，不参与任何数值**；色值写在 theme.css 的 `.inv-line[data-band=…]` 里，
+//   这里只吐档位字符串，别把颜色搬进来（换配色不该动 JSX）。
+export function invGradeBand(it) {
+  const n = parseGrade(invItemGrade(it));
+  if (n == null) return 'none';
+  if (n <= 5) return 'w';
+  if (n <= 10) return 'g';
+  if (n <= 15) return 'e';
+  if (n <= 20) return 'b';
+  if (n <= 25) return 'p';
+  if (n <= 30) return 'o';
+  return 'r';
+}
+
+// ===== 印面文字：品阶汉字（篆书）=====
+// 印上写这件物品的品阶，用中文数字，**最多两字**（30px 的小印只有 13px 的字放得下两个字）：
+//   1-9 → 一~九 ｜ 10 → 十 ｜ 11-19 → 十一~十九 ｜ 20 → 廿 ｜ 21-29 → 廿一~廿九 ｜ 30 → 卅 ｜ 31-36 → 卅一~卅六
+// 认不出品阶的写「品」，与色柱的中性灰档配套（都表示「这件东西没有可辨的品阶」）。
+// ⚠ 这些字全部来自子集化的篆书字库 assets/fonts/seal-script.woff2（@font-face 见 theme.css）。
+//   要在这里加新字（比如「百」），**必须重跑 client/_unused/zhuan/subset.py** 把字补进字库，
+//   否则新字会静默掉回宋体，印面变成两种字体拼贴。
+const CN_NUM = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+export function invGradeSeal(it) {
+  const n = parseGrade(invItemGrade(it));
+  if (n == null) return '品';
+  const v = Math.max(1, Math.min(99, Math.round(n)));
+  if (v < 10) return CN_NUM[v];
+  const tens = Math.floor(v / 10), ones = v % 10;
+  const head = tens === 1 ? '十' : tens === 2 ? '廿' : tens === 3 ? '卅' : CN_NUM[tens] + '十';
+  return head + (ones ? CN_NUM[ones] : '');
+}
+
+// ===== 类型归并（顶部页签的筛选项）=====
+// 物品类型是自由文本：INV_ITEM_TYPES 里的 7 种（功法/法宝/装备/消耗品/素材/珍贵物品/杂物）按原文归位，
+// **AI 写的怪类型或空类型一律并进「其他」** —— 否则页签会随 AI 的用词一路膨胀。
+export function invTypeKey(it) {
+  const t = String((it && typeof it === 'object' ? it.type : '') || '').trim();
+  return INV_ITEM_TYPES.includes(t) ? t : '其他';
+}
+
+// ===== 类型的「篆字印」（2026-09-25 起印面改用品阶汉字，本函数暂时没有调用点，保留备用）=====
+// 物品数据里**没有图标字段**（只有 name/type/subtype/grade/desc/mods/quantity），
+// 原先用一枚单字小印占住图标位 —— 与左侧竹简导航的 .nav-icon 是同一套语言。
+// ⚠ 不用 emoji 当图标：GameDashboard.jsx 里已定过调（「彩色 emoji 混在鎏金深底上最出戏」）。
+// ⚠ 要把它用回来，记得先补字库：子集化只收了中文数字，诀/宝/兵/甲/佩/材/珍/杂/物 大多不在里面。
+const INV_TYPE_GLYPHS = { 功法: '诀', 法宝: '宝', 装备: '兵', 消耗品: '丹', 珍贵物品: '珍', 素材: '材', 杂物: '杂' };
+export function invTypeGlyph(it) {
+  const type = String((it && typeof it === 'object' ? it.type : '') || '').trim();
+  const sub = invItemSubtype(it);
+  if (type === '装备' || type === '法宝') {
+    if (/饰|环|佩|链|玉|珠|簪|囊/.test(sub)) return '佩';
+    if (/衣|袍|甲|护|冠|履/.test(sub)) return '甲';
+    if (/符|幡|钟|鼎|镜|印/.test(sub)) return '宝';
+    if (/剑|刀|枪|棍|弓|扇|锤|鞭|兵|器/.test(sub)) return '兵';
+    return type === '法宝' ? '宝' : '兵';
+  }
+  return INV_TYPE_GLYPHS[type] || '物';
+}
+
+// ===== 储物袋行：鎏金折页（2026-09-25 改版）=====
+// 一件一行：左侧一道品阶色柱（绝对定位，贴住行左缘，颜色由外层 data-band 决定）+
+// 一枚品阶篆字印（篆书写「卅四」＝三十四品）；中间两行（名称 / 词条 + 类型品阶）；右侧一枚朱砂数量印。
+// 描述与来源各自成行接在下面，超长由 CSS 省略号收掉，任何长度都不会压到右侧数量。
 // equippedSlots：这件物品此刻被穿在哪些槽位（储物袋数量含在身的那件，故要标「已装备」）
 export function InvItemLines({ it, equippedSlots = null }) {
   const meta = invItemMetaText(it);
@@ -458,22 +588,70 @@ export function InvItemLines({ it, equippedSlots = null }) {
   const mods = it && typeof it === 'object' ? invItemModsText(it.mods) : '';
   const desc = it && typeof it === 'object' ? String(it.desc || '') : '';
   const src = it && typeof it === 'object' && it.lots?.[0]?.source ? String(it.lots[0].source) : '';
+  // 类型行：类型 · 子类 · 品阶（+ 来源）。取不到时留一个不换行空格占位 ——
+  // 目的是让「两列两行」的行高恒定：同排里有描述的高一截、没描述的矮一截，看着很脏。
+  const kindText = [meta, src ? `来源：${src}` : ''].filter(Boolean).join(' · ') || '\u00A0';
+  const seal = invGradeSeal(it);   // 印面＝品阶（篆书汉字，最多两字）；data-len 让 CSS 给两字缩字号
   return (
     <>
-      <span className="inv-line-head">
-        <span className="inv-line-name">{invItemName(it) || '?'}</span>
-        {slots.length ? <span className="equipped-badge" title={`正穿在身上：${slots.join('、')}`}>已装备</span> : null}
-        <span className="inv-line-qty">×{invItemQty(it)}</span>
-      </span>
-      {(meta || src || slots.length) && (
-        <span className="inv-line-meta">
-          {meta ? <span className="tag">{meta}</span> : null}
-          {slots.length ? <span className="inv-line-where">{slots.join('、')} 在身</span> : null}
-          {src ? <span className="inv-line-src">来源：{src}</span> : null}
+      <span className="inv-seal" aria-hidden="true" data-len={seal.length}>{seal}</span>
+      <span className="inv-col inv-col-l">
+        <span className="inv-head">
+          <span className="inv-line-name">{invItemName(it) || '?'}</span>
+          {slots.length ? <span className="equipped-badge" title={`正穿在身上：${slots.join('、')}`}>已装备</span> : null}
         </span>
+        <span className="inv-kind">{kindText}</span>
+      </span>
+      <span className="inv-col inv-col-r">
+        <span className={`inv-line-mods${mods ? '' : ' inv-mods-none'}`}>{mods || '无附加'}</span>
+        <span className="inv-line-desc">{desc || '\u00A0'}</span>
+      </span>
+      <span className="inv-line-qty" title="持有数量">×{invItemQty(it)}</span>
+    </>
+  );
+}
+
+// ===== 储物袋列表：顶部玉牌页签（按类型筛）+ 鎏金折页 =====
+// 页签只列「这一格里真的有的类型」（外加恒在的「全部」）—— 一件都没有的类型不占位，
+// 免得一屏全是空页签。顺序固定走 INV_ITEM_TYPES，不随物品在列表里的先后乱跳。
+// 过滤**不改动原数组**，只挑要渲染的行；行的 key 用**原始下标**，
+// 这样切页签时 React 不会把两条不同物品当成同一条复用（用过滤后下标就会）。
+export function InvList({ inventory = [], equippedMap = null, onPick }) {
+  const [flt, setFlt] = useState('all');
+  const rows = useMemo(() => (inventory || []).map((it, idx) => ({ it, idx })), [inventory]);
+  const counts = useMemo(() => {
+    const m = new Map();
+    for (const { it } of rows) {
+      const k = invTypeKey(it);
+      m.set(k, (m.get(k) || 0) + 1);
+    }
+    return m;
+  }, [rows]);
+  const tabs = useMemo(
+    () => [...INV_ITEM_TYPES.filter((t) => counts.has(t)), ...(counts.has('其他') ? ['其他'] : [])],
+    [counts],
+  );
+  const shown = flt === 'all' ? rows : rows.filter(({ it }) => invTypeKey(it) === flt);
+  return (
+    <>
+      {tabs.length > 1 && (
+        <div className="inv-tabs">
+          <button type="button" className={`inv-tab${flt === 'all' ? ' on' : ''}`} aria-pressed={flt === 'all'}
+            onClick={() => setFlt('all')}>全部<span className="inv-tab-n">{rows.length}</span></button>
+          {tabs.map((t) => (
+            <button type="button" key={t} className={`inv-tab${flt === t ? ' on' : ''}`} aria-pressed={flt === t}
+              onClick={() => setFlt(t)}>{t}<span className="inv-tab-n">{counts.get(t)}</span></button>
+          ))}
+        </div>
       )}
-      {mods ? <span className="inv-line-mods">{mods}</span> : null}
-      {desc ? <span className="inv-line-desc">{desc}</span> : null}
+      <div className="inv-fold">
+        {shown.map(({ it, idx }) => (
+          <button className="inv-line inv-item-row" key={idx} data-band={invGradeBand(it)}
+            onClick={() => onPick(it)} title="点击查看详情">
+            <InvItemLines it={it} equippedSlots={equippedSlotsOf(equippedMap, invItemName(it))} />
+          </button>
+        ))}
+      </div>
     </>
   );
 }
@@ -505,6 +683,28 @@ function syncEquippedItem(eq, oldName, next) {
   return out;
 }
 
+// 丢弃物品时把它从所有装备槽里摘下来。槽位里留着一件储物袋里已经没有的装备就是「幽灵装备」：
+// 属性页照旧算它的加成，玩家点开槽位却查不到它的来路，也没法卸下（列表里已经没有这一条了）。
+function clearEquipSlotsByName(eq, name) {
+  const nm = String(name || '');
+  if (!nm) return normalizeEquipment(eq || newEquipmentSlots());
+  let out = normalizeEquipment(eq || newEquipmentSlots());
+  const groups = [
+    ['weapon', ['right', 'left']],
+    ['armor', ['head', 'inner', 'armor', 'hands', 'legs', 'feet', 'cloak']],
+    ['accessory', [0, 1, 2, 3, 4, 5]],
+    ['treasure', [0, 1, 2, 3, 4, 5]],
+    ['technique', [0, 1, 2, 3, 4, 5]],
+  ];
+  for (const [g, keys] of groups) {
+    for (const k of keys) {
+      const v = getEquipSlot(out, g, k);
+      if (v && invItemName(v) === nm) out = setEquipSlot(out, g, k, null);
+    }
+  }
+  return out;
+}
+
 // ===== 物品详情弹窗（储物袋/装备界面点击物品查看） =====
 export function ItemDetailModal({ item, title, onClose, actions }) {
   const it = normalizeInvItem(item);
@@ -512,12 +712,15 @@ export function ItemDetailModal({ item, title, onClose, actions }) {
   // 类型/品阶这类关键字段即使为空也要显示「未标注」——否则整行不渲染，
   // 玩家看到的是「详情里什么都没有」，分不清是没数据还是界面出错。
   const Row = ({ k, v, placeholder }) => {
-    const empty = v === '' || v == null;
+    // ⚠ 先转文字再判空：坏数据里这些字段装的可能是一整个对象，
+    //   直接当子节点渲染会让整棵组件树崩掉（见 T 的注释）。
+    const text = v != null && typeof v === 'object' ? T(v) : v;
+    const empty = text === '' || text == null;
     if (empty && !placeholder) return null;
     return (
       <div className="kv">
         <span className="k">{k}</span>
-        <span className="v" style={{ fontSize: 12, ...(empty ? { color: 'var(--text-dim)' } : null) }}>{empty ? placeholder : v}</span>
+        <span className="v" style={{ fontSize: 12, ...(empty ? { color: 'var(--text-dim)' } : null) }}>{empty ? placeholder : text}</span>
       </div>
     );
   };
@@ -525,22 +728,22 @@ export function ItemDetailModal({ item, title, onClose, actions }) {
     <div className="modal-overlay" onClick={ev => ev.target === ev.currentTarget && onClose()}>
       <div className="modal item-detail-modal">
         <div className="modal-head">
-          <h3>{title || it.name || '未命名物品'}</h3>
+          <h3>{T(title) || T(it.name) || '未命名物品'}</h3>
           <button className="ghost small" onClick={onClose} aria-label="关闭">✕</button>
         </div>
         <div className="modal-body">
           <Row k="类型" v={[it.type, it.subtype].filter(Boolean).join(' · ')} placeholder="未标注" />
-          <Row k="品阶" v={it.grade} placeholder="未标注" />
+          <Row k="品阶" v={gradeWithRealm(it.grade)} placeholder="未标注" />
           <Row k="数量" v={`×${it.quantity}`} />
           <Row k="外观" v={it.appearance} />
           {it.desc ? (
-            <div className="kv"><span className="k">描述</span><span className="v" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{it.desc}</span></div>
+            <div className="kv"><span className="k">描述</span><span className="v" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{T(it.desc)}</span></div>
           ) : null}
           {modsText ? (
             <div className="kv"><span className="k">属性</span><span className="v" style={{ fontSize: 12, color: 'var(--gold)' }}>{modsText}</span></div>
           ) : null}
           {it.lots?.[0]?.source ? (
-            <div className="kv"><span className="k">来源</span><span className="v" style={{ fontSize: 11, color: 'var(--text-dim)' }}>{it.lots[0].source}</span></div>
+            <div className="kv"><span className="k">来源</span><span className="v" style={{ fontSize: 11, color: 'var(--text-dim)' }}>{T(it.lots[0].source)}</span></div>
           ) : null}
         </div>
         {actions ? <div className="modal-foot">{actions}</div> : null}
@@ -644,7 +847,8 @@ function EquipPickModal({ inventory, compat, slotLabel, equippedMap, onPick, onC
               </div>
               {list.map((it, i) => {
                 const nm = invItemName(it) || '?';
-                const typeText = [it && typeof it === 'object' ? it.type : '', invItemSubtype(it), invItemGrade(it)].filter(Boolean).join(' · ');
+                // 品阶后缀境界，与储物袋列表、详情弹窗同一口径（gradeWithRealm 是唯一出口）
+                const typeText = [it && typeof it === 'object' ? it.type : '', invItemSubtype(it), gradeWithRealm(invItemGrade(it))].filter(Boolean).join(' · ');
                 const modsText = it && typeof it === 'object' ? invItemModsText(it.mods) : '';
                 const desc = it && typeof it === 'object' ? it.desc : '';
                 return (
@@ -735,6 +939,9 @@ function SlotCell({ group, slotKey, label, value, compat, onPick, onDetail, onUn
   // value 可能为 null（空槽）——typeof null === 'object' 直接读 .desc 会崩
   const equipped = value == null ? '' : (typeof value === 'object' ? (value.name || slotValueText(value)) : value);
   const isObj = value != null && typeof value === 'object';
+  // ⚠ 品阶一律先转文字再渲染：坏数据里 grade 位置上可能被塞了一整个对象
+  //   （实测 2026-09-26：饰品格里 grade = {name:"二十四品",…}）—— 直接当子节点渲染会整棵树崩掉。
+  const gradeText = isObj ? T(value.grade) : '';
   const openPick = () => onPick({ group, slotKey, label, compat });
   return (
     <div className="equip-slot-cell">
@@ -743,7 +950,7 @@ function SlotCell({ group, slotKey, label, value, compat, onPick, onDetail, onUn
         <>
           <button className="equip-slot-val equipped" title="点击查看详情"
             onClick={() => onDetail({ group, slotKey, label, compat, item: value })}>
-            {isObj && value.grade ? <span className="equip-slot-grade">{value.grade}</span> : null}
+            {gradeText ? <span className="equip-slot-grade">{gradeText}</span> : null}
             {equipped}
           </button>
           <button className="small ghost equip-slot-unequip" onClick={() => onUnequip(group, slotKey)}>卸下</button>
@@ -761,25 +968,31 @@ function SlotCell({ group, slotKey, label, value, compat, onPick, onDetail, onUn
 function AttrNumberList({ rows }) {
   return (
     <div className="attr-num-list">
-      {rows.map(r => (
-        <div className="attr-num-row" key={r.key}>
-          <span className="label">{r.label}</span>
-          <span className="nums">
-            {r.isPool ? `${r.effCurrent} / ${r.effMax}` : r.effCurrent}{r.key === 'crit' ? '%' : ''}
-            {!!r.total && (
-              <span className={`bonus-total ${r.total > 0 ? 'up' : 'down'}`}
-                title={attrBonusHint(r)}>（{r.total > 0 ? '+' : ''}{r.total}{r.key === 'crit' ? '%' : ''}）</span>
-            )}
-          </span>
-        </div>
-      ))}
+      {rows.map(r => {
+        // 显示文案统一走 attrRowView；返回 null 表示这一行不上界面（装备修炼速度词条那行）
+        const v = attrRowView(r);
+        if (!v) return null;
+        return (
+          <div className="attr-num-row" key={r.key}>
+            <span className="label">{v.label}</span>
+            <span className="nums">
+              {v.text}{r.key === 'crit' ? '%' : ''}
+              {!!r.total && (
+                <span className={`bonus-total ${r.total > 0 ? 'up' : 'down'}`}
+                  title={attrBonusHint(r)}>（{r.total > 0 ? '+' : ''}{r.total}{r.key === 'crit' ? '%' : ''}）</span>
+              )}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 // ---- NPC ----
-function NpcDetail({ npc, save, updateSave, saveNow, tab, setTab, updateNpc, relEditing, setRelEditing, settings }) {
+function NpcDetail({ npc, save, updateSave, saveNow, tab, setTab, updateNpc, relEditing, setRelEditing, settings, onSnapshotSaved = null }) {
   const toast = useToast();
+  const confirmDlg = useConfirm();
   // 快照数据源：与主角一致（save.charSnapshots 优先；无快照时从名册字段合成仅用于展示，编辑后才落快照）
   const rawSnap = save.charSnapshots?.[npc.id] || null;
   const snap = rawSnap || {
@@ -792,7 +1005,21 @@ function NpcDetail({ npc, save, updateSave, saveNow, tab, setTab, updateNpc, rel
   };
   const idt = snap.identity || {};
   const act = snap.action || {};
-  const numericExempt = npc.numericClamp === false;
+  const eco = snap.economy || {};
+  // 承诺三槽位（**NPC 专属**，主角那三格程序拒收）：只列还挂在身上的诺言，空槽不显示。
+  // 序号是「第几个槽位」不是重要性排序 —— 槽位由程序按空位分配，所以显示时按槽位号排。
+  // 每格原文是三段「要做什么｜欠了谁｜什么时候到期」，这里走 promiseSummaryText 读成人话。
+  const promiseList = [snap.bio?.promise1, snap.bio?.promise2, snap.bio?.promise3]
+    .map((x, i) => ({ slot: i + 1, text: promiseSummaryText(x) }))
+    .filter(x => x.text);
+  // 性格（NPC 专属，主角那格程序拒收）：存的是中文短版，这一页显示长版（每项带一句解释）。
+  // 老档里 v1 留下的中文短句认不出编码，会原样显示。要改去「快照」页填五段编码。
+  const personalityText = personalityLongText(snap.identity?.personality);
+  // 数值表约束开关：写名册角色本体（npc.numericClamp），与主角 save.character.numericClamp 同构。
+  // ⚠ 这个标记**不存快照**（快照 schema 里没有它），所以「基本信息」页那次改为整页只读后，
+  //   NPC 侧一度完全没有写入入口（2026-09-24 用户报「为什么 NPC 没有数值表豁免的选项」）。
+  //   现在挂在「属性」页 —— 那一页本来就有一行「该角色已豁免…」的提示，开关放这里最顺。
+  const setNpcClamp = (v) => updateNpc(n => ({ ...n, numericClamp: v }));
   const inventory = snap.inventory || [];
   const traitList = Array.isArray(snap.traits) ? snap.traits : [];
   // 已装备判定：NPC 储物袋同样标注，免得同一件东西在装备栏与储物袋被当成两件
@@ -806,7 +1033,9 @@ function NpcDetail({ npc, save, updateSave, saveNow, tab, setTab, updateNpc, rel
     updateSave(s);
     saveNow(s);
     persistCharSnapshots(save.id, { [npc.id]: next });
-  }, [rawSnap, snap, save, updateSave, saveNow, npc.id]);
+    // 与主角侧同口径：手改刷新最近一个带 payload 的 ai 块，否则一按回退就被旧状态盖掉
+    onSnapshotSaved?.(npc.id, next);
+  }, [rawSnap, snap, save, updateSave, saveNow, npc.id, onSnapshotSaved]);
 
   // ===== 装备：从储物袋选装备到槽位 / 卸下（与主角同一套 EquipmentSlots 交互） =====
   // 与主角同一口径：储物袋 = 拥有清单（数量含在身那件），穿 / 脱都不改数量。
@@ -866,6 +1095,38 @@ function NpcDetail({ npc, save, updateSave, saveNow, tab, setTab, updateNpc, rel
     });
     toast('ok', `已保存「${item.name}」`);
   };
+  // 丢弃：与主角同一口径（数量大于 1 只丢一个，整条移除时一并摘掉装备槽里的同名件）
+  const discardInventoryItem = async (item) => {
+    const nm = invItemName(item);
+    if (!nm) return;
+    const qty = invItemQty(item);
+    const slots = equippedSlotsOf(equippedMap, nm);
+    const ok = await confirmDlg({
+      title: qty > 1 ? '丢弃一个' : '丢弃物品',
+      text: qty > 1
+        ? `丢掉「${nm}」一个？还剩 ${qty - 1} 个。`
+        : `丢掉「${nm}」？${slots.length ? `它正穿在「${slots.join('、')}」上，会一并卸下。` : ''}丢掉之后储物袋里就没有这一件了。`,
+      danger: true, okText: '丢弃',
+    });
+    if (!ok) return;
+    patchSnapshot(sn => {
+      const list = [...(sn.inventory || [])];
+      const i = list.findIndex(x => invItemName(x) === nm);
+      if (i < 0) return;
+      const cur = list[i];
+      if (qty > 1 && cur && typeof cur === 'object') {
+        const next = { ...cur, quantity: qty - 1 };
+        if (next.count != null) delete next.count;   // 数量只留一份，别让 quantity / count 两个字段各说各的
+        list[i] = next;
+      } else {
+        list.splice(i, 1);
+        sn.equipment = clearEquipSlotsByName(sn.equipment, nm);
+      }
+      sn.inventory = list;
+    });
+    setInvDetail(null);
+    toast('ok', qty > 1 ? `已丢弃「${nm}」一个，还剩 ${qty - 1} 个` : `已丢弃「${nm}」`);
+  };
 
   return (
     <>
@@ -878,25 +1139,34 @@ function NpcDetail({ npc, save, updateSave, saveNow, tab, setTab, updateNpc, rel
 
       {tab === 0 && (
         <>
-          <div className="field"><label>姓名</label>
-            <input type="text" value={npc.name} onChange={e => updateNpc(n => ({ ...n, name: e.target.value }), false)} onBlur={() => saveNow({ ...save })} />
-          </div>
-          <div className="field"><label>副标题 <span className="lbl-note">身份简述</span></label>
-            <input type="text" value={npc.subtitle || ''} onChange={e => updateNpc(n => ({ ...n, subtitle: e.target.value }), false)} onBlur={() => saveNow({ ...save })} placeholder="如：黄枫谷外门弟子" />
-          </div>
-          <div className="kv"><span className="k">性别</span><span className="v">{T(idt.gender, npc.gender || '—')}</span></div>
-          <div className="kv"><span className="k">种族</span><span className="v">{T(idt.race, npc.race || '—')}</span></div>
-          <div className="kv"><span className="k">境界</span><span className="v">{T(idt.realm, npc.realm || '—')}</span></div>
-          <div className="kv"><span className="k">性格</span><span className="v">{T(idt.personality, '—')}</span></div>
+          {/* 本页**整页只读**（2026-09-24 用户指定：「在这个基本信息页面不可修改」）。
+              原来这里的「姓名」「副标题」是输入框、「数值表约束」是可点的开关，全部撤掉；
+              要改这些值请到「快照」页内联编辑（那里字段与这里一一对应）。
+              ⚠ 顺序与用词按用户给的清单来（2026-09-27 统一版式）：姓名·性别 / 身份·种族 / 年龄·寿元 /
+                灵根 / 总修炼倍率 / 境界·进度 / 灵石 / 当前行为 / 位置。
+                与主角基本信息页（ProtagonistDetail tab 0）是**同一份清单**，改一处必须同步另一处。
+              ⚠ 「身份」取快照的 identityRoles（AI 用 role 指令维护的履历，老存档的 NPC 常为空 ⇒ 显示「—」）；
+                「种族」优先名册 npc.race（左侧名册显示的就是它），快照 identity.race 作回落 ——
+                会变的字段（身份）读快照，不变的读本体，与主角页同一口径。
+              ⚠ 姓名与性别在快照缺失时回落到名册上的老字段（npc.xxx），所以旧存档也显示得出东西。
+              ⚠ 「数值表约束」开关**不在本页**（本页整页只读）：它是名册标记不是快照字段，
+                快照页也没有它 —— 2026-09-24 用户报「为什么 NPC 没有数值表豁免的选项」就是这条漏的。
+                已挪到「属性」页（NpcDetail tab === 3）。 */}
+          <div className="kv"><span className="k">姓名 / 性别</span><span className="v">{T(idt.name, npc.name || '—')} · {T(idt.gender, npc.gender || '—')}</span></div>
+          <div className="kv"><span className="k">身份 / 种族</span><span className="v">{T(rolesText(idt.identityRoles), '—')} · {T(npc.race, idt.race || '—')}</span></div>
+          <div className="kv"><span className="k">年龄 / 寿元</span><span className="v">{idt.age ?? '—'} 岁 / {idt.shouyuan ?? '—'}</span></div>
+          <div className="kv"><span className="k">灵根</span><span className="v">{T(idt.linggen, '—')}</span></div>
+          <CultRateRow snap={snap} settings={settings} />
+          <div className="kv"><span className="k">境界 / 境界进度</span><span className="v">{T(idt.realm, npc.realm || '—')} · {idt.realmProgress ?? 0}</span></div>
+          <div className="kv"><span className="k">灵石</span><span className="v">{eco.spiritStones ?? '—'}</span></div>
           <div className="kv"><span className="k">当前行为</span><span className="v" style={{ fontSize: 12 }}>{T(act.action, '未记录')}</span></div>
           <div className="kv"><span className="k">位置</span><span className="v" style={{ fontSize: 12 }}>{T(act.location, '—')}</span></div>
-          {act.attire && <div className="kv"><span className="k">着装</span><span className="v" style={{ fontSize: 12 }}>{T(act.attire)}</span></div>}
-          <NumericClampRow
-            value={npc.numericClamp}
-            onChange={(v) => updateNpc(n => ({ ...n, numericClamp: v }))}
-            globalOff={settings?.numericTuning?.enforce === false}
-          />
-          <div className="hint" style={{ marginTop: 8 }}>身份、状态等细节可在「快照」页内联编辑。</div>
+          {/* 性格（NPC 专属）：显示**长版**（每项带一句解释），注入提示词与快照里存的是短版。
+              主角没有这一行 —— 他的性格由性格页那 16 个滑块定，程序也拒收。要改去「快照」页。 */}
+          <div className="kv"><span className="k">性格</span><span className="v" style={{ fontSize: 12 }}>{T(personalityText, '—')}</span></div>
+          {/* 承诺（NPC 专属）：只列还在的诺言，前面那个数字是槽位号；
+              「欠 X」「期限」由 promiseSummaryText 从三格里带出来。要改去「快照」页。 */}
+          <div className="kv"><span className="k">承诺</span><span className="v" style={{ fontSize: 12 }}>{promiseList.length ? promiseList.map(p => `${p.slot}. ${T(p.text)}`).join('　') : '—'}</span></div>          <div className="hint" style={{ marginTop: 8 }}>本页只读。要修改这些数值，请到「快照」页内联编辑。</div>
         </>
       )}
 
@@ -909,19 +1179,21 @@ function NpcDetail({ npc, save, updateSave, saveNow, tab, setTab, updateNpc, rel
           <div className="btn-row" style={{ marginBottom: 8 }}>
             <button className="small primary" onClick={() => setInvAddOpen(true)}>＋ 添加物品</button>
           </div>
-          {inventory.length ? inventory.map((it, i) => (
-            <button className="inv-line inv-item-row" key={i} onClick={() => setInvDetail(it)} title="点击查看详情">
-              <InvItemLines it={it} equippedSlots={equippedSlotsOf(equippedMap, invItemName(it))} />
-            </button>
-          )) : <div className="empty-tip">储物袋空空如也</div>}
-          <div className="hint" style={{ marginTop: 8 }}>点击物品查看详情；装备请切到「装备」页，点击槽位从储物袋选择。标着「已装备」的物品此刻正穿在身上，与装备栏里那件是同一样东西，不是两件。</div>
+          {inventory.length ? (
+            <InvList inventory={inventory} equippedMap={equippedMap} onPick={setInvDetail} />
+          ) : <div className="empty-tip">储物袋空空如也</div>}
+          <div className="hint" style={{ marginTop: 8 }}>点击物品查看详情，详情里可以丢弃；装备请切到「装备」页，点击槽位从储物袋选择。标着「已装备」的就是身上这件，不是另有一件。</div>
         </>
       )}
 
       {tab === 3 && (
         <>
           <div className="notice">数值为实际生效值，已含后面的加值；「+N」是这一项的总加成，鼠标悬停可查看来源。</div>
-          {numericExempt && <div className="notice">该角色已豁免数值表约束，属性不会被强制改回区间。</div>}
+          <NumericClampRow
+            value={npc.numericClamp}
+            onChange={setNpcClamp}
+            globalOff={settings?.numericTuning?.enforce === false}
+          />
           <AttrNumberList rows={attrRows(snap, characterAttrMods(save, snap, snap?.id))} />
         </>
       )}
@@ -951,8 +1223,8 @@ function NpcDetail({ npc, save, updateSave, saveNow, tab, setTab, updateNpc, rel
         return (
           <div className="card" key={i} style={{ marginBottom: 8 }}>
             <div className="row1"><span className="name">{name}</span>{rarity ? <span className="cost">{rarity}</span> : null}</div>
-            {desc ? <div className="desc">{desc}</div> : null}
-            {effects ? <div className="desc" style={{ color: 'var(--text-dim)' }}>{effects}</div> : null}
+            {desc ? <div className="desc">{T(desc)}</div> : null}
+            {effects ? <div className="desc" style={{ color: 'var(--text-dim)' }}>{T(effects)}</div> : null}
             {modsText ? <div className="trait-mods-line">词条：{modsText}</div> : null}
           </div>
         );
@@ -985,7 +1257,7 @@ function NpcDetail({ npc, save, updateSave, saveNow, tab, setTab, updateNpc, rel
                 <button className="small" onClick={() => setRelEditing({ ...r, idx: i })}>编辑</button>
                 <button className="small danger" onClick={() => updateNpc(n => ({ ...n, relations: n.relations.filter((_, j) => j !== i) }))}>删除</button>
               </div>
-              {r.desc && <div className="desc">{r.desc}</div>}
+              {r.desc ? <div className="desc">{T(r.desc)}</div> : null}
             </div>
           )) : (
             <div className="empty-tip">
@@ -1020,11 +1292,16 @@ function NpcDetail({ npc, save, updateSave, saveNow, tab, setTab, updateNpc, rel
         </>
       )}
 
-      {tab === 8 && <SnapshotTab save={save} updateSave={updateSave} charId={npc.id} kind="npc" name={npc.name} settings={settings} />}
+      {tab === 8 && <SnapshotTab save={save} updateSave={updateSave} charId={npc.id} kind="npc" name={npc.name} settings={settings} onSnapshotSaved={onSnapshotSaved} />}
 
       {invDetail && (
         <ItemDetailModal item={invDetail} onClose={() => setInvDetail(null)}
-          actions={<button className="primary" onClick={() => { setInvEdit(invDetail); setInvDetail(null); }}>编辑</button>} />
+          actions={<>
+            <button className="danger" onClick={() => discardInventoryItem(invDetail)}>
+              {invItemQty(invDetail) > 1 ? '丢弃一个' : '丢弃'}
+            </button>
+            <button className="primary" onClick={() => { setInvEdit(invDetail); setInvDetail(null); }}>编辑</button>
+          </>} />
       )}
       {invAddOpen && <ItemAddModal onAdd={addInventoryItem} onClose={() => setInvAddOpen(false)} />}
       {invEdit && <ItemAddModal initial={invEdit} onSave={saveInventoryItem} onClose={() => setInvEdit(null)} />}
@@ -1034,11 +1311,11 @@ function NpcDetail({ npc, save, updateSave, saveNow, tab, setTab, updateNpc, rel
 
 /* ============================================================
    快照 Tab：解析并展示当前角色快照
-   - 直接编辑：快照界面关键字段内联修改（身份/状态/行动/生平/肖像）
+   - 直接编辑：快照界面关键字段内联修改（身份/状态/行动/生平）
    - 编辑 JSON：高级模式，整体 JSON 编辑
    - 保存后同步 save.charSnapshots（AI 提示词即刻读到最新值）
    ============================================================ */
-function SnapshotTab({ save, updateSave, charId, kind, name, settings }) {
+function SnapshotTab({ save, updateSave, charId, kind, name, settings, onSnapshotSaved = null }) {
   const [snap, setSnap] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);       // JSON 编辑模式
@@ -1054,7 +1331,7 @@ function SnapshotTab({ save, updateSave, charId, kind, name, settings }) {
   const load = useCallback(async () => {
     setLoading(true);
     // 数据源优先级：存档内 charSnapshots（名册与 AI 注解读的就是它）→ 服务端副本 → 按角色信息构造。
-    // 旧版只读服务端副本，于是「快照页改 A、名册读 B」：保存后名册那侧纹丝不动，看着像保存失败。
+    // 只读服务端副本就会「快照页改 A、名册读 B」：保存后名册那侧纹丝不动，看着像保存失败。
     if (localSnap) { setSnap(localSnap); setLoading(false); return; }
     try {
       const rec = await api.getCharSnapshot(save.id, charId);
@@ -1102,9 +1379,12 @@ function SnapshotTab({ save, updateSave, charId, kind, name, settings }) {
       await api.putCharSnapshot(save.id, charId, obj);
       setSnap(obj);
       // 主角与 NPC 都要同步回存档：名册（基本信息/装备/属性/储物袋）读的就是 save.charSnapshots，
-      // 旧版只同步主角，导致 NPC 在快照页改完、名册其它页仍是旧数据。
+      // 只同步主角的话，NPC 在快照页改完、名册其它页仍是旧数据。
       const s = { ...save, charSnapshots: { ...(save.charSnapshots || {}), [charId]: obj } };
       updateSave(s);
+      // 顺手刷新「当前这一回合」的存档点：回退是把该回合的整份状态盖回来，
+      // 这次手改若不在那份状态里，一按回退就白改了（用户 2026-09-24 报的正是这个）。
+      await onSnapshotSaved?.(charId, obj);
       toast('ok', '快照已保存' + note);
       return true;
     } catch (e) {
@@ -1213,9 +1493,9 @@ function SnapshotTab({ save, updateSave, charId, kind, name, settings }) {
           )}
         </>
       ) : fieldEdit ? (
-        <SnapshotView snap={draftSnap} editable onPatch={patchField} save={save} />
+        <SnapshotView snap={draftSnap} editable onPatch={patchField} save={save} settings={settings} kind={kind} />
       ) : (
-        <SnapshotView snap={snap} save={save} />
+        <SnapshotView snap={snap} save={save} settings={settings} kind={kind} />
       )}
     </div>
   );
@@ -1263,6 +1543,29 @@ function equipmentRows(eq) {
 function T(v, fallback = '') {
   const t = slotValueText(v);
   return t || fallback;
+}
+
+// 身份履历：快照 identity.identityRoles 是 AI 用 role 指令逐条追加的身份数组（最早 → 当前），
+// 这里按顺序串起来显示。主角与 NPC 的基本信息页共用同一份数据（快照页那行「身份序列」也是它）。
+// ⚠ 老存档里的 NPC 快照可能整个没有这个键，所以必须先判数组再取，空了返回 '' 由调用方给占位。
+function rolesText(roles) {
+  if (!Array.isArray(roles)) return '';
+  return roles.map(r => T(r)).filter(Boolean).join(' → ');
+}
+
+// 总修炼倍率（只读）：灵根倍率 × 装备倍率，与注入给 AI 的角色卡同一口径，每次渲染现算。
+// 不含当地灵气、世界因子与运气 —— 那三项每场都变，由 AI 现算写进 <cultivation_card>。
+// ⚠ 名字带「总」是为了跟单项贡献分家（2026-09-27 统一版式时用户定的名）：
+//   属性列表里那行装备词条的**中间值**（attrRows 产的 extraOnly 行，界面已不显示）只是装备那一半，
+//   这里才是灵根乘上装备的最终值。主角与 NPC 的基本信息页、快照页共用这一个组件，改名字就全改。
+export function CultRateRow({ snap, settings }) {
+  const rate = snap ? cultivationRate(snap, getEffectiveTables(settings?.numericTuning)) : 0;
+  if (!rate) return null;
+  return (
+    <div className="kv" title="灵根倍率 × 装备倍率；不含当地灵气、世界因子与运气（那三项由 AI 每场现算）">
+      <span className="k">总修炼倍率</span><span className="v">×{rate}（灵根 × 装备）</span>
+    </div>
+  );
 }
 
 // ===== 关系列表（名册「关系」tab 与快照「关系」栏目共用） =====
@@ -1327,6 +1630,18 @@ function InvItemEditor({ item, index, onPatchItem, onRemove, equippedSlots = nul
   const it = normalizeInvItem(item);
   const set = (field, value) => onPatchItem(index, field, value);
   const slots = Array.isArray(equippedSlots) ? equippedSlots.filter(Boolean) : [];
+  // 品阶与技能那边同一个坑：显示值被换算过（敲「2」当场变「二品」），
+  // 直接受控会让第二个键得到「二品0」—— 两位数品阶（20 品）打不进去。
+  // 同样改成草稿、失焦提交（这里不拦非法字串，物品品阶允许旧词如「上品」）。
+  const [gradeDraft, setGradeDraft] = useState(String(it.grade || ''));
+  useEffect(() => { setGradeDraft(String(it.grade || '')); }, [it.grade]);
+  // 认得出品阶就统一存成「二十品」，认不出（如「残次品」这类自由描述）就照原样存
+  const commitGrade = () => {
+    const v = gradeDraft.trim();
+    if (!v) { set('grade', ''); return; }
+    set('grade', normalizeGrade(v) || v);
+  };
+  const submitOnEnter = e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } };
   return (
     <div className="inv-edit-item">
       {slots.length ? (
@@ -1344,8 +1659,9 @@ function InvItemEditor({ item, index, onPatchItem, onRemove, equippedSlots = nul
           onChange={e => set('type', e.target.value)} />
         <input className="snap-edit-input inv-edit-subtype" list="inv-subtype-list2" placeholder="子类 · 可留空" value={it.subtype || ''}
           onChange={e => set('subtype', e.target.value)} />
-        <input className="snap-edit-input inv-edit-grade" list="inv-grade-list2" placeholder="品阶" value={it.grade || ''}
-          onChange={e => set('grade', e.target.value)} />
+        <input className="snap-edit-input inv-edit-grade" list="inv-grade-list2" placeholder="品阶（如 三品 / 20）"
+          value={gradeDraft} onChange={e => setGradeDraft(e.target.value)}
+          onBlur={commitGrade} onKeyDown={submitOnEnter} />
         <button className="small ghost" onClick={() => onRemove(index)}>删除</button>
       </div>
       <input className="snap-edit-input inv-edit-appearance" placeholder="外观 · 可留空" value={it.appearance || ''}
@@ -1376,6 +1692,20 @@ function SkillEditRow({ skill, index, ctx, onPatchItem, onRemove }) {
   const set = (f, v) => onPatchItem(index, f, v);
   const coef = skillCoefText(s, ctx);
   const isDmg = s.type === '伤害';
+  // 品阶这一栏必须「先让你把字打完整，再落库」。
+  // 因为框里显示的 s.grade 是换算过的成品（你敲「2」当场变「二品」）——
+  // 若直接把它当受控值，第二个键会追加到成品后面（「二品0」）→ 认不出 → 整栏被清空，
+  // 于是 10~36 品（两位数的品阶）**逐个键入永远打不进去**，只能整段粘贴。
+  // 改法照 InvModsInput 那套：打字期间只改草稿，失焦（或回车）才提交。
+  const [gradeDraft, setGradeDraft] = useState(String(s.grade ?? ''));
+  useEffect(() => { setGradeDraft(String(s.grade ?? '')); }, [s.grade]);
+  const commitGrade = () => {
+    const v = gradeDraft.trim();
+    if (!v) { set('grade', ''); return; }                      // 清空 = 撤掉品阶
+    if (parseGrade(v) == null) { setGradeDraft(String(s.grade ?? '')); return; }  // 认不出就退回原值
+    set('grade', v);                                           // 原样落库，由 buildSkill 统一换算成「二十品」
+  };
+  const submitOnEnter = e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } };
   return (
     <div className="inv-edit-item">
       <div className="inv-edit-row">
@@ -1387,7 +1717,9 @@ function SkillEditRow({ skill, index, ctx, onPatchItem, onRemove }) {
           <option value="">（未标注）</option>
           {DMG_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
         </select>
-        <input className="snap-edit-input inv-edit-grade" placeholder="品阶（如 三品）" value={s.grade} onChange={e => set('grade', e.target.value)} />
+        <input className="snap-edit-input inv-edit-grade" placeholder="品阶（如 三品 / 20）"
+          value={gradeDraft} onChange={e => setGradeDraft(e.target.value)}
+          onBlur={commitGrade} onKeyDown={submitOnEnter} />
         <button className="small ghost" onClick={() => onRemove(index)}>删除</button>
       </div>
       <div className="inv-edit-row">
@@ -1443,7 +1775,7 @@ function TraitEditRow({ trait, index, onPatchItem, onRemove }) {
 // 快照视图：按栏目点选查看（一次只显示一个栏目），替代早期的一堆可折叠卡片。
 // - 栏目列表由快照实际数据动态生成（没有数据的可选栏目不出现）
 // - save 用于把关系里的内部 ID（B1/C1…）翻成姓名；不传时退回显示原 ID
-export function SnapshotView({ snap, editable = false, onPatch, save, defaultCol = 'identity' }) {
+export function SnapshotView({ snap, editable = false, onPatch, save, defaultCol = 'identity', settings = null, kind = 'npc' }) {
   const [addOpen, setAddOpen] = useState(false);
   const [activeCol, setActiveCol] = useState(defaultCol);
   if (!snap) return <div className="empty-tip">暂无快照</div>;
@@ -1457,6 +1789,14 @@ export function SnapshotView({ snap, editable = false, onPatch, save, defaultCol
   const ca = snap.cultivationArts || {};
   const legacyCols = (snap.legacy && typeof snap.legacy === 'object' && snap.legacy.columns) ? snap.legacy.columns : {};
   const patch = (path, value) => onPatch && onPatch(path, value);
+  // ⚠ 判断主角看 kind，不看 editable —— editable 是「字段直编模式」的开关，
+  //    与这是谁的快照无关（主角与 NPC 都可能在编辑态或只读态）。
+  const isPlayer = kind === 'player';
+  // 主角的性格以「性格」页那 16 个滑块为权威 —— 这一栏只是把滑块读出来。
+  // 为什么不读 idt.personality：那一格会被演化阶段的 NPC 列指令写进 AI 自己编的一句话，
+  // 跟滑块各说各话（实测滑块是「仁慈 6＝愿意保留余地」，那格却写着「冷酷」）。
+  // NPC 没有滑块，他们的性格就是那一格，所以只对主角换成滑块口径。
+  const playerPersonality = isPlayer ? personalityBrief(save?.character?.personality?.dims) : '';
 
   // ===== 储物袋读写（兼容字符串 / 模板对象 / Mortal 实例 / AI 自由变体 4 种形态） =====
   const inv = Array.isArray(snap.inventory) ? snap.inventory : [];
@@ -1518,25 +1858,31 @@ export function SnapshotView({ snap, editable = false, onPatch, save, defaultCol
           <Ekv label="年龄" value={idt.age} editable onPatch={patch} path="identity.age" type="number" />
           <Ekv label="寿元" value={idt.shouyuan} editable onPatch={patch} path="identity.shouyuan" type="number" />
           <Ekv label="灵根" value={idt.linggen} editable onPatch={patch} path="identity.linggen" />
-          <Ekv label="性格" value={idt.personality} editable onPatch={patch} path="identity.personality" />
+          {/* 主角的性格栏是滑块的可读呈现，不给手改（要改性格上「性格」页拖滑块）。
+              手改这一栏会与滑块分家，而注入给 AI 的始终是滑块那份，改了也不生效。 */}
+          {isPlayer
+            ? <div className="kv"><span className="k">性格</span><span className="v" style={{ fontSize: 12 }}>{T(playerPersonality) || '—'}</span></div>
+            : <Ekv label="性格" value={idt.personality} editable onPatch={patch} path="identity.personality" />}
         </>
       ) : (
         <>
           <div className="kv"><span className="k">年龄 / 寿元</span><span className="v">{idt.age ?? '—'} 岁 / {idt.shouyuan ?? '—'}</span></div>
           {idt.linggen && <div className="kv"><span className="k">灵根</span><span className="v">{T(idt.linggen)}</span></div>}
-          {idt.personality && <div className="kv"><span className="k">性格</span><span className="v" style={{ fontSize: 12 }}>{T(idt.personality)}</span></div>}
+          {isPlayer
+            ? <div className="kv"><span className="k">性格</span><span className="v" style={{ fontSize: 12 }}>{T(playerPersonality) || '—'}</span></div>
+            : (idt.personality && <div className="kv"><span className="k">性格</span><span className="v" style={{ fontSize: 12 }}>{T(idt.personality)}</span></div>)}
         </>
       )}
-      {idt.aliasName && <div className="kv"><span className="k">化名</span><span className="v">{T(idt.aliasName)}</span></div>}
-      {idt.disguiseRealm && <div className="kv"><span className="k">伪装境界</span><span className="v">{T(idt.disguiseRealm)}</span></div>}
+      <CultRateRow snap={snap} settings={settings} />
       {Array.isArray(idt.identityRoles) && idt.identityRoles.length > 0 && <div className="kv"><span className="k">身份序列</span><span className="v">{idt.identityRoles.map(r => T(r)).filter(Boolean).join(' → ')}</span></div>}
       {/* 境界进度：主角与 NPC 同一口径（主角原有的「主角专属 · 进度」行已随该栏删除并入此处） */}
       {editable
         ? <Ekv label="境界进度" value={idt.realmProgress ?? 0} editable onPatch={patch} path="identity.realmProgress" type="number" />
         : (idt.realmProgress != null && <div className="kv"><span className="k">境界进度</span><span className="v">{idt.realmProgress}</span></div>)}
-      {/* 修炼速度不在这里显示（2026-09-22 删）：它由公式算，而公式含「运气」浮动，
-          程序算出来的只是一个不含运气的参考值，摆出来反而与卡片上的数字打架。
-          真实数字由 AI 每场闭关现算写进 <cultivation_card>（见 data/cultivationParams.js）。 */}
+      {/* 「每场的实际修炼速度」不在这里显示（2026-09-22 删）：公式含「运气」浮动，
+          摆一个不含运气的参考值出来会与卡片上的数字打架。真实数字由 AI 每场闭关现算写进
+          <cultivation_card>（见 data/cultivationParams.js）。上面那行「修炼倍率」是它的固定部分
+          （灵根 × 装备），不含运气，所以可以摆。 */}
       {editable ? <Ekv label="灵石" value={eco.spiritStones ?? 0} editable onPatch={patch} path="economy.spiritStones" type="number" />
         : <div className="kv"><span className="k">灵石</span><span className="v">{eco.spiritStones ?? '—'}</span></div>}
     </>
@@ -1586,8 +1932,8 @@ export function SnapshotView({ snap, editable = false, onPatch, save, defaultCol
     <>
       <Ekv label="动作" value={editable ? act.action : T(act.action, '—')} editable={editable} onPatch={patch} path="action.action" area />
       <Ekv label="地点" value={editable ? act.location : T(act.location, '—')} editable={editable} onPatch={patch} path="action.location" />
-      {(act.coordinates || []).length > 0 && !editable && (
-        <div className="kv"><span className="k">坐标</span><span className="v">{act.coordinates.join(',')}</span></div>
+      {!editable && coordText(act.coordinates) && (
+        <div className="kv"><span className="k">坐标</span><span className="v">{coordText(act.coordinates)}</span></div>
       )}
       {act.attire && <div className="kv"><span className="k">着装</span><span className="v" style={{ fontSize: 12 }}>{T(act.attire)}</span></div>}
       {act.figure && <div className="kv"><span className="k">体态</span><span className="v" style={{ fontSize: 12 }}>{T(act.figure)}</span></div>}
@@ -1602,6 +1948,25 @@ export function SnapshotView({ snap, editable = false, onPatch, save, defaultCol
       <Ekv label="内心" value={bio.innerThought} editable={editable} onPatch={patch} path="bio.innerThought" area />
       <Ekv label="短期目标" value={bio.shortTermGoal} editable={editable} onPatch={patch} path="bio.shortTermGoal" area />
       <Ekv label="长期目标" value={bio.longTermGoal} editable={editable} onPatch={patch} path="bio.longTermGoal" area />
+      {/* 性格（NPC 专属）：存的可能是程序翻好的中文短版，也可能是刚填的五段编码 —— 两种都认，
+          半角竖线也收。主角没有这一格：他的性格由性格页那 16 个滑块定，程序也拒收（写了会进报告）。 */}
+      {!isPlayer && (
+        <>
+          <div className="hint" style={{ marginTop: 6 }}>填五段编码：{PERSONALITY_CODE_HINT}</div>
+          <Ekv label="性格" value={idt.personality} editable={editable} onPatch={patch} path="identity.personality" area />
+        </>
+      )}
+      {/* 承诺三槽位：**只给 NPC** —— 主角的承诺由玩家自己掌握，程序也拒收
+          （写了会进 skipped「主角不记承诺」）。空槽显示「—」。
+          每格一行文本、三段全角竖线：要做什么｜欠了谁｜什么时候到期（AI 也照这个格式写）。 */}
+      {!isPlayer && (
+        <>
+          <div className="hint" style={{ marginTop: 6 }}>每格一行，三段用全角竖线：要做什么｜欠了谁｜什么时候到期</div>
+          <Ekv label="承诺1" value={bio.promise1} editable={editable} onPatch={patch} path="bio.promise1" area />
+          <Ekv label="承诺2" value={bio.promise2} editable={editable} onPatch={patch} path="bio.promise2" area />
+          <Ekv label="承诺3" value={bio.promise3} editable={editable} onPatch={patch} path="bio.promise3" area />
+        </>
+      )}
       <div className="kv"><span className="k">关系</span><span className="v">{relList.length} 条</span></div>
       <RelationList save={save} relations={relList} emptyText="暂无关系 · 由剧情演化自动生成" />
     </>
@@ -1610,26 +1975,9 @@ export function SnapshotView({ snap, editable = false, onPatch, save, defaultCol
   col('economy', '经济', (
     <>
       {editable ? (
-        <>
-          <Ekv label="灵石" value={eco.spiritStones ?? 0} editable onPatch={patch} path="economy.spiritStones" type="number" />
-          <div className="eco-edit-row">
-            {[['lowGrade', '低品'], ['midGrade', '中品'], ['highGrade', '高品'], ['topGrade', '顶品']].map(([k, lb]) => (
-              <label key={k} className="eco-edit-cell">{lb}
-                <input className="snap-edit-input" type="number" value={eco.spiritStoneBreakdown?.[k] ?? 0}
-                  onChange={e => patch(`economy.spiritStoneBreakdown.${k}`, Number(e.target.value) || 0)} />
-              </label>
-            ))}
-          </div>
-        </>
+        <Ekv label="灵石" value={eco.spiritStones ?? 0} editable onPatch={patch} path="economy.spiritStones" type="number" />
       ) : (
-        <>
-          <div className="kv"><span className="k">灵石</span><span className="v">{eco.spiritStones ?? '—'}</span></div>
-          {eco.spiritStoneBreakdown && (
-            <div className="kv"><span className="k">明细</span><span className="v" style={{ fontSize: 12 }}>
-              低 {eco.spiritStoneBreakdown.lowGrade || 0} · 中 {eco.spiritStoneBreakdown.midGrade || 0} · 高 {eco.spiritStoneBreakdown.highGrade || 0} · 顶 {eco.spiritStoneBreakdown.topGrade || 0}
-            </span></div>
-          )}
-        </>
+        <div className="kv"><span className="k">灵石</span><span className="v">{eco.spiritStones ?? '—'}</span></div>
       )}
     </>
   ));
@@ -1652,7 +2000,7 @@ export function SnapshotView({ snap, editable = false, onPatch, save, defaultCol
             onPatchItem={patchInvItem} onRemove={removeInvItem} />
         ))
       ) : inv.map((it, i) => (
-        <div className="inv-line" key={i}>
+        <div className="inv-line" key={i} data-band={invGradeBand(it)}>
           <InvItemLines it={it} equippedSlots={equippedSlotsOf(eqMap, invItemName(it))} />
         </div>
       ))}
@@ -1747,54 +2095,13 @@ export function SnapshotView({ snap, editable = false, onPatch, save, defaultCol
     </>
   ), legacyKeys.length);
 
-  if (snap.portraitPrompt || editable) col('portrait', '肖像提示词', (
-    <Ekv label="portraitPrompt" value={snap.portraitPrompt} editable={editable} onPatch={onPatch} path="portraitPrompt" area />
-  ));
-
-  // concurrent-evo-preset 扩展字段
-  if (Array.isArray(snap.spiritBeasts) && snap.spiritBeasts.length > 0) col('beasts', '灵兽', (
-    <>
-      {snap.spiritBeasts.map((b, i) => (
-        <div className="kv" key={i}><span className="k" style={{ fontSize: 12 }}>{T(b.name, '?')}</span><span className="v" style={{ fontSize: 12 }}>{T(b.realm)} · {T(b.species)}</span></div>
-      ))}
-    </>
-  ), snap.spiritBeasts.length);
-
-  if (snap.techniqueMasteries && typeof snap.techniqueMasteries === 'object' && !Array.isArray(snap.techniqueMasteries) && Object.keys(snap.techniqueMasteries).length > 0) {
-    const tm = Object.entries(snap.techniqueMasteries);
-    col('mastery', '功法熟练度', (
-      <>
-        {tm.map(([k, v]) => (
-          <div className="kv" key={k}><span className="k" style={{ fontSize: 12 }}>{k}</span><span className="v" style={{ fontSize: 12 }}>{T(v.level || v.tier || v)}</span></div>
-        ))}
-      </>
-    ), tm.length);
-  }
+  // 2026-09-28：「肖像提示词」栏目已随「去掉所有肖像功能」删除
+  //（该字段全项目零读取，编辑了也没人用）。
 
   if (snap.lifespanRoll) col('lifespan', '寿元推算', (
     <>
       <div className="kv"><span className="k">基准境界</span><span className="v">{T(snap.lifespanRoll.majorRealm, '—')}</span></div>
       <div className="kv"><span className="k">基准寿元</span><span className="v">{snap.lifespanRoll.baseShouyuan ?? '—'}</span></div>
-      {snap.lifespanRoll.zScore != null && <div className="kv"><span className="k">Z 值</span><span className="v">{snap.lifespanRoll.zScore}</span></div>}
-    </>
-  ));
-
-  if (snap.factionAffiliation) col('faction', '门派归属', (
-    <>
-      <div className="kv"><span className="k">门派</span><span className="v">{T(snap.factionAffiliation.factionId, '—')}</span></div>
-      <div className="kv"><span className="k">身份</span><span className="v">{T(snap.factionAffiliation.status, '—')}</span></div>
-      {snap.factionAffiliation.memberRank && <div className="kv"><span className="k">职衔</span><span className="v">{T(snap.factionAffiliation.memberRank)}</span></div>}
-    </>
-  ));
-
-  // 「主角专属」栏（善恶值 / 心魔值 / 进度 / 绿瓶 / 死亡次数）已于 2026-09-22 按玩家要求整体删除，
-  // 对应字段一并废弃（见 snapshotSchema 的 makeEmptySnapshot）。其中「进度」并入上方「身份」栏的「境界进度」。
-
-  if (snap.adult) col('adult', '成人字段', (
-    <>
-      {snap.adult.desire != null && <div className="kv"><span className="k">欲念</span><span className="v">{snap.adult.desire}</span></div>}
-      {snap.adult.pleasure != null && <div className="kv"><span className="k">愉悦</span><span className="v">{snap.adult.pleasure}</span></div>}
-      {(snap.adult.sensitiveTraits || []).length > 0 && <div className="kv"><span className="k">敏感特质</span><span className="v" style={{ fontSize: 12 }}>{snap.adult.sensitiveTraits.map(x => T(x)).filter(Boolean).join('、')}</span></div>}
     </>
   ));
 

@@ -13,10 +13,10 @@
 //   · 所以可以「走 → 打 → 再走」；
 //   · 真正交出回合只有一条路 —— 底部那个「结束回合」按钮（敌方由 battleAI 自己收尾）。
 //
-// ── 出手流程（2026-09-19 改）──
+// ── 出手流程 ──
 //   ① 在右侧面板点一个技能（＝选中）
 //   ② 在战场上点一个闪烁的目标（＝释放）
-// 不再有「自动去打最近的那个」——打谁由玩家决定。瞄准期间鼠标停在谁身上，
+// 打谁由玩家决定 —— 没有「自动去打最近的那个」。瞄准期间鼠标停在谁身上，
 // 提示条会报出这一击的预计（伤害 / 暴击率 / 是不是打到了背面），数字与真正结算同源。
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -119,6 +119,8 @@ export default function BattleView({ setup, onFinish, onClose }) {
   const dragRef = useRef(null);                   // 正在拖动的起点（null = 没在拖）
   const dragEndAtRef = useRef(0);                 // 拖动结束的时刻：刚拖完的那一下 click 不算「走位」
   const hoverKeyRef = useRef('');                 // 上一次悬停的格 —— 同一格来回移动不重复渲染
+  const aimTipRef = useRef(null);                 // 瞄准预估小牌（跟着鼠标走的那块）
+  const pointerRef = useRef(null);                // 鼠标在屏幕上最后落点（小牌随内容变化时要重新摆一次）
   const [dragging, setDragging] = useState(false); // 正在转视角：整块界面换成「抓着」的手型
   // 镜头目标值：所有操作（拖拽 / 滚轮 / 按钮）只改 goal，渲染视角每帧向 goal 做指数平滑 —— BG3 式阻尼手感
   const goalRef = useRef(VIEW_DEFAULT);
@@ -549,15 +551,47 @@ export default function BattleView({ setup, onFinish, onClose }) {
     onCellClick(c.x, c.y);
   };
 
+  /**
+   * 把「瞄准预估」那块小牌挪到鼠标旁边。
+   *
+   * 为什么直接改样式、不走 state：这是每次 pointermove 都要动的东西，
+   * 每次 setState 都会把整棵树（含三维那一层）重画一遍，鼠标一动就掉帧。
+   *
+   * 为什么这块数字不能做在图例里（原来的写法）：图例是地图区里一行**普通流元素**，
+   * 文字一长就折行、自己长高，把三维画布挤矮；画布一改尺寸，镜头（比例 / 位置）
+   * 就得整个重算 —— 玩家看到的就是「鼠标划到敌人身上，整幅画面跳一下」。
+   * 做成浮层之后：图例文字恒定，抖动从根上没有了，读数还正好落在瞄准点旁边。
+   */
+  const placeAimTip = (clientX, clientY) => {
+    const tip = aimTipRef.current, host = stageRef.current;
+    if (!tip || !host) return;
+    const r = host.getBoundingClientRect();
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    const pad = 8, gap = 16;
+    let x = clientX - r.left + gap, y = clientY - r.top + gap;
+    if (x + w > r.width - pad) x = clientX - r.left - w - gap;   // 贴到右边界就翻到鼠标左边
+    if (y + h > r.height - pad) y = clientY - r.top - h - gap;   // 贴到下边界就翻到鼠标上边
+    tip.style.transform = `translate3d(${Math.round(Math.max(pad, x))}px, ${Math.round(Math.max(pad, y))}px, 0)`;
+  };
+
   // 悬停高亮：同一格来回移动不重复渲染（不然鼠标一动就整棵树重画一遍）
   const onStageMove = (e) => {
     if (dragRef.current) return;              // 正在拖着转视角，不更新悬停
+    pointerRef.current = { x: e.clientX, y: e.clientY };
+    placeAimTip(e.clientX, e.clientY);        // 同一格内挪动也要跟手
     const c = sceneRef.current?.pickCell?.(e.clientX, e.clientY) || null;
     const k = c ? `${c.x},${c.y}` : '';
     if (k === hoverKeyRef.current) return;
     hoverKeyRef.current = k;
     setHover(c);
   };
+
+  // 预估数字刚算出来 / 刚消失时，内容宽高变了 —— 按最近的鼠标落点重新摆一次牌。
+  // （只在内容变化时跑，不进 move 循环，所以不影响跟手）
+  useEffect(() => {
+    const p = pointerRef.current;
+    if (p) placeAimTip(p.x, p.y);
+  }, [aimPreview]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const finish = () => {
     const outcome = battleOutcome(state);
@@ -566,7 +600,7 @@ export default function BattleView({ setup, onFinish, onClose }) {
 
   // ===== 行动条排序（下次出手由近到远）=====
   const timeline = [...frame.units].filter(u => !u.out).sort((a, b) => a.nextAt - b.nextAt);
-  // 已经退出战斗的人：不再参与出手排序，但也不从画面上抹掉 —— 单独挂在行动条底部，写明怎么退出的。
+  // 已经退出战斗的人：不参与出手排序，但也不从画面上抹掉 —— 单独挂在行动条底部，写明怎么退出的。
   const gone = [...frame.units].filter(u => u.out);
   // 快慢用「间隔」比，不用脚力数值 —— 出手速度由境界档位决定，同档位脚力不同也照样是同一速度。
   // 显示成全场最慢者的倍数，一眼看出谁快。
@@ -622,17 +656,32 @@ export default function BattleView({ setup, onFinish, onClose }) {
                 onSceneLive={onSceneLive}
                 onFallbackPick={onCellClick}
               />
+              {/* 瞄准预估：跟着鼠标走的小牌。挂在地图框里（不是三维那一层），
+                  位置由 placeAimTip 直接改样式；这里只负责内容和显隐。
+                  它不吃鼠标事件 —— 否则牌子会挡在准星上，点不到底下的敌人。 */}
+              <div
+                ref={aimTipRef}
+                className={`bm-aim${aimPreview ? ' on' : ''}`}
+                aria-hidden={!aimPreview}
+              >
+                {aimPreview && (
+                  <>对 <b>{aimPreview.name}</b>：预计 <b>{aimPreview.dmg}</b> 伤害（暴击 {aimPreview.crit}%｜{aimPreview.angleText}）</>
+                )}
+              </div>
             </div>
             <div className="battle-map-legend">
+              {/* ⚠ 这条提示的文字长度**不许跟鼠标位置挂钩**：它一变长就折行、把三维画布挤矮，
+                  画布一改尺寸镜头就要重算 —— 玩家看到的就是「鼠标划到敌人身上画面跳一下」。
+                  瞄准预估改由下面那块跟着鼠标走的浮牌 `.bm-aim` 承担。 */}
               <span className="bm-hint">
                 {mode === 'target'
-                  ? `已选【${pending?.label || '技能'}】：点一个闪烁的目标释放${aimPreview
-                    ? ` · 对 ${aimPreview.name}：预计 ${aimPreview.dmg} 伤害（暴击 ${aimPreview.crit}%｜${aimPreview.angleText}）`
-                    : ''}`
+                  ? `已选【${pending?.label || '技能'}】：点一个闪烁的目标释放`
                   : isMyTurn
                     ? (frame.turn?.acted
                       ? '本回合已出手，还能继续走位；想收手就点右下「结束回合」'
-                      : '淡绿＝所有能走的地块，蓝底＝本回合走得到的位置。走位与出手都不结束回合 —— 可以走→打→再走')
+                      // 轮到我方、还没出手：这里原本有一句「淡绿＝所有能走的地块，蓝底＝…」，已按要求去掉。
+                      // 注意 `.battle-map-legend` 是 space-between，本格空出来后视角控件会重新分布到中间。
+                      : '')
                     : '对方行动中…'}
               </span>
               {/* 视角控件：左键拖动平移、右键拖动旋转，滚轮也能缩放 */}
@@ -688,7 +737,7 @@ export default function BattleView({ setup, onFinish, onClose }) {
               )}
             </div>
 
-            {/* 行动面板：战斗中可操作；战斗结束后仍保留（只读），不再像之前那样整块消失 */}
+            {/* 行动面板：战斗中可操作；战斗结束后仍保留（只读） */}
             <div className="battle-panel">
                 <div className="bp-pools">
                   {frame.units.filter(u => u.side === 'left').map(u => (
@@ -810,7 +859,7 @@ export default function BattleView({ setup, onFinish, onClose }) {
                 <button
                   className={`bl-toggle ${showAudit ? 'on' : ''}`}
                   onClick={() => setShowAudit(v => !v)}
-                  title="显示每一击的完整算式：攻击力 × 倍率 → 减防御 → 乘各种加成 → 来势。只看这里，战斗结果不受影响。"
+                  title="显示每一击的完整算式：攻击力 × 倍率 → 减防御 → 乘各种加成 → 来势。仅显示，不影响战斗结果。"
                 >
                   算式明细：{showAudit ? '开' : '关'}
                 </button>

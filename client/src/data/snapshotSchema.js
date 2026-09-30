@@ -1,8 +1,7 @@
 // ===== 角色快照 Schema 与校验器 =====
-// 参照「快照实例.txt」「快照实例——主角.txt」与「完整版-物品管理.json」定义
 // 该模块定义角色快照的字段结构、提供校验函数、空快照构造器与可读文本视图。
 
-import { computeAttrs, rootDisplayName, ROOT_CULTIVATE_RATE, TRAIT_RARITIES, resolveTraitMods, personalityBrief } from './gameData.js';
+import { computeAttrs, rootDisplayName, rootRateFromText, ROOT_CULTIVATE_RATE, TRAIT_RARITIES, resolveTraitMods, personalityBrief } from './gameData.js';
 import { GRADE_CANDIDATES, normalizeGrade, parseAttrText, attrTextFromMods } from './gradeUtils.js';
 import { buildSkill } from './skillCodex.js';
 
@@ -12,20 +11,33 @@ import { buildSkill } from './skillCodex.js';
 const TIER_TO_GRADE = { 基础: '一品', 入门: '三品', 进阶: '十二品' };
 // 快照 v2 视图：注入给 AI 的「当前状态」统一用扁平中文键（与演化阶段让 AI 写的口径一致）
 import { legacyToV2, v2SnapshotText, CRIT_DEFAULT } from './snapshotV2.js';
+import { SPEED_MOD_KEYS } from './cultivationParams.js';
 
 // ---------- 装备槽位工具 ----------
 // 装备结构有两种形态：
-//   旧版：equipment.weapon / armor / accessory 为字符串
-//   新版（concurrent 预设）：weapon={right,left}，armor={head,inner,armor,hands,legs,feet,cloak}，
+//   形态一：equipment.weapon / armor / accessory 为字符串
+//   形态二（concurrent 预设）：weapon={right,left}，armor={head,inner,armor,hands,legs,feet,cloak}，
 //     accessory/treasure/technique 为槽位数组
 // 该工具把任意槽位值安全转为可展示文本，避免把对象直接渲染进 React 导致崩溃。
-// 槽位中文名。内衣格已取消（老数据里的 underwear/body 归入「内衬」「甲身」显示），
+// 槽位中文名。内衣格不存在（老数据里的 underwear/body 归入「内衬」「甲身」显示），
 // 与快照 v2 的槽位清单一致：右手 左手 头部 内衬 甲身 手部 腿部 足部 披风。
 export const EQUIP_SLOT_LABELS = {
   right: '右手', left: '左手',
   head: '头部', inner: '内衬', armor: '甲身', hands: '手部', legs: '腿部', feet: '足部', cloak: '披风',
   underwear: '内衬', body: '甲身',
 };
+
+// 坐标统一入口：AI 可能写成 [x,y]、"12,45"、{x,y}，界面按数字数组渲染（直接 .join 会崩）。
+// 解析不出来返回 fallback（默认 null = 视为没有坐标）。
+export function toCoords(v, fallback = null) {
+  if (Array.isArray(v)) {
+    const [a, b] = v;
+    return Number.isFinite(Number(a)) && Number.isFinite(Number(b)) ? [Number(a), Number(b)] : fallback;
+  }
+  if (v && typeof v === 'object') return toCoords([v.x ?? v.X, v.y ?? v.Y], fallback);
+  const m = String(v ?? '').trim().match(/^(-?\d+)\s*[,\s]\s*(-?\d+)$/);
+  return m ? [Number(m[1]), Number(m[2])] : fallback;
+}
 
 export function slotValueText(v) {
   if (v == null || v === '') return '';
@@ -45,7 +57,7 @@ export function slotValueText(v) {
 }
 
 // ---------- 新版装备槽位结构（concurrent 预设兼容） ----------
-// 装备槽位口径统一为 9 个具名格 + 3 个数组格（内衣格已取消）：
+// 装备槽位口径统一为 9 个具名格 + 3 个数组格：
 //   weapon.right/left → 右手/左手
 //   armor.head/inner/armor/hands/legs/feet/cloak → 头部/内衬/甲身/手部/腿部/足部/披风
 //   accessory / treasure / technique → 饰品/法宝/功法（各 6 格）
@@ -59,19 +71,42 @@ export function newEquipmentSlots() {
   };
 }
 
+// 物品对象的「字段名」——它们**永远不可能是槽位名**。
+// 脏数据里（AI 把整件物品写在了分组位置上，又被 normalizeItemShape 逐字段补成假物品）
+// 这些键会各装着一件「由字段值拼出来的假物品」；不认出它们，界面就会凭空多出 6 件幽灵防具
+// （实测：头部/内衬/手部/腿部/足部/披风全被填成名字叫「装备」「防具」「一品」的东西）。
+const ITEM_FIELD_KEYS = new Set([
+  'name', 'type', 'subtype', 'grade', 'appearance', 'desc', 'mods', 'quantity',
+  'id', 'definitionId', 'lots', 'source', 'count', 'currentEffect', 'srcKey', 'definition',
+]);
+
+// 脏数据救援：从「每个字段各装着一件物品」的坏槽位里，捞出那件真正有名字的物品。
+// 只在槽位值自己没有字符串 name 时才走这里（即数据已经坏了），正常数据永远不会命中。
+function pickInnerItem(o) {
+  for (const key of ['name', 'armor', 'body', ...Object.keys(o)]) {
+    const x = o[key];
+    if (x && typeof x === 'object' && !Array.isArray(x) && typeof x.name === 'string' && x.name) return x;
+  }
+  return null;
+}
+
 // 把任意形态的装备结构归一成上面这一套（界面显示与写入前都先过一遍）：
 // - 整串字符串（"朴刀"）→ 兵器归右手、防具归甲身、饰品归第一格
 // - 槽位值是字符串 → 包成 { name } 对象（界面只有对象/数组才是可点击的卡片）
 // - 老键归并：underwear → 内衬、body → 甲身；其它未知键塞进空槽
 //   —— 这条是「数据在、界面没了」的根治点：未知键不再被丢弃
+//   ⚠ 但**物品字段名**那几个键例外（见 ITEM_FIELD_KEYS）：它们是坏数据，塞进槽位只会造幽灵装备
 export function normalizeEquipment(eq) {
   const src = eq && typeof eq === 'object' && !Array.isArray(eq) ? eq : {};
   const toItem = (v) => {
     if (v == null || v === '') return null;
     if (typeof v === 'string' || typeof v === 'number') return { name: String(v) };
     if (typeof v === 'object' && !Array.isArray(v)) {
-      const nm = v.name || slotValueText(v);
-      return nm ? { ...v, name: String(nm) } : null;
+      // ⚠ name 必须是**字符串**才算数：坏数据里 name 位置会被写成整件物品，
+      //   直接 String() 会得到 "[object Object]" 当物品名（2026-09-26 崩因之一）。
+      if (typeof v.name === 'string' && v.name) return { ...v, name: v.name };
+      const inner = pickInnerItem(v);
+      return inner ? { ...inner } : null;
     }
     if (Array.isArray(v)) {
       const nm = slotValueText(v);
@@ -92,6 +127,7 @@ export function normalizeEquipment(eq) {
     const extra = { ...a };
     for (const k of CANON) delete extra[k];
     for (const [k, v] of Object.entries(extra)) {
+      if (ITEM_FIELD_KEYS.has(k)) continue;   // 坏数据：字段名不是槽位名，别当装备显示
       const it = toItem(v);
       if (!it) continue;
       if (k === 'underwear') armor.inner = armor.inner || it;
@@ -512,9 +548,29 @@ export function attrRows(snap, traitMods = null) {
   }
   for (const [label, v] of Object.entries(extra)) {
     if (!v) continue;
-    rows.push({ key: 'x_' + label, label, current: v, max: v, bonus: 0, traitBonus: 0, total: 0, isPool: false, extraOnly: true });
+    // ⚠ effCurrent / effMax 必须一起给：界面两个渲染端都只读 effCurrent，
+    //   少了它这一行会只剩标签、值位置一片空白（2026-09-27 用户报「修炼速度没有值」）。
+    rows.push({ key: 'x_' + label, label, current: v, max: v, bonus: 0, traitBonus: 0, total: 0, effCurrent: v, effMax: v, isPool: false, extraOnly: true });
   }
   return rows;
+}
+
+/**
+ * 属性行在**界面**上的显示文案（角色属性页与主界面右栏共用同一口径）。
+ * 返回 null ⇒ 这一行在界面不出现。
+ * 只有装备的「修炼速度／修炼加速」词条是这种情况：它按**加速点**记账（每 100 点 = 装备倍率 +1），
+ * 换算出来只是修炼倍率里「装备那一段」，单独摆出来会跟旁边那行真正的修炼倍率
+ * （灵根 × 装备，由 CultRateRow 出）打架 —— 同一栏里 ×13 与 ×19.5 两个数，玩家自然以为算错了。
+ * 2026-09-27 用户要求「直接写修炼倍率 ×19.5」，故这行不再单独出现。
+ * ⚠ 只改界面：注入给 AI 的文本仍带这行原始点数（snapshotV2 的「其他加成：修炼速度+1200」），
+ *    AI 需要知道装备给了多少加速，所以 attrRows 里这行照旧产出，只是不往界面上画。
+ */
+export function attrRowView(row) {
+  if (row?.extraOnly && SPEED_MOD_KEYS.includes(row?.label ?? '')) return null;
+  return {
+    label: row?.label ?? '',
+    text: row?.isPool ? `${row.effCurrent} / ${row.effMax}` : String(row?.effCurrent ?? ''),
+  };
 }
 
 /**
@@ -574,7 +630,7 @@ export const SNAPSHOT_RECOMMENDED = [
   'status.buffs', 'action.attire', 'action.appearance',
   'bio.background', 'bio.rawRelations',
   'economy.spiritStones', 'equipment', 'inventory', 'skills', 'traits',
-  'cultivationArts', 'social', 'portraitPrompt',
+  'cultivationArts',
 ];
 
 // ---------- 类型校验工具 ----------
@@ -650,31 +706,13 @@ export function validateSnapshot(snap) {
   return { ok: errors.length === 0, errors, warnings };
 }
 
-// ---------- 校验整轮演化结果（AI 第二阶段返回的整体结构） ----------
-// 期望：{ thinking?: string, snapshots: { B1: {...}, C1: {...} }, deeds?: [], worldTime?: string }
-export function validateEvolutionResult(result) {
-  const errors = [];
-  let parsed = null;
-  if (!result || typeof result !== 'object') {
-    return { ok: false, errors: [{ code: 'type', msg: '演化结果根必须是对象' }], parsed: null };
-  }
-  if (!result.snapshots || typeof result.snapshots !== 'object' || Array.isArray(result.snapshots)) {
-    errors.push({ code: 'missing', msg: '缺少 snapshots 字段，或其类型不符（应为对象：{ B1: {...}, C1: {...} }）' });
-    return { ok: false, errors, parsed: null };
-  }
-  parsed = { thinking: result.thinking || '', snapshots: {}, deeds: result.deeds || [], worldTime: result.worldTime || '' };
-  for (const [id, snap] of Object.entries(result.snapshots)) {
-    const r = validateSnapshot(snap);
-    if (!r.ok) {
-      errors.push({ code: 'snapshot', id, msg: `角色 ${id} 快照不合规`, sub: r.errors });
-    } else {
-      parsed.snapshots[id] = snap;
-    }
-  }
-  return { ok: errors.length === 0, errors, parsed };
-}
-
 // ---------- 构造空快照（字段与「快照实例.txt」一致） ----------
+// 2026-09-24 清掉一批「零读零写 / 只读不写」的字段（全项目实证：没有生产者，或唯一读取者本身也死）：
+//   lifespanRoll.zScore / rollCount、identity.aliasName / disguiseRealm /
+//   appellation、linggenBreakthroughAptitude、action.appearanceDetails、social（整块）、
+//   economy.spiritStoneBreakdown（整块）、techniqueMasteries（整块）、spiritBeasts（整块）、
+//   adult（整块）、factionAffiliation（整块）、factionLoadout（整块）、customColumnValues。
+// 要加回来之前请先确认存在真实写入路径，别只加一行声明。
 export function makeEmptySnapshot(id, kind = 'npc', partial = {}) {
   const base = {
     id,
@@ -682,26 +720,21 @@ export function makeEmptySnapshot(id, kind = 'npc', partial = {}) {
     // 寿元掷点（参照快照实例）
     lifespanRoll: {
       majorRealm: '凡人',
-      zScore: 0,
       baseShouyuan: 80,
-      rollCount: 0,
     },
-    // 阵营装载策略
-    factionLoadout: { policy: 'standard' },
     identity: {
       name: partial.name || id,
-      aliasName: '',
       gender: '男',
       realm: '凡人',
       realmProgress: 0,
-      disguiseRealm: '',
       isYaozu: false,
       identityRoles: [],
       personality: '',
-      appellation: '',
       linggen: '',
       linggenCultivationSpeedMultiplier: 1,
-      linggenBreakthroughAptitude: 1,
+      // 自身修炼倍率 = 灵根倍率 × 装备倍率（不含当地灵气、世界因子、运气）。
+      // 程序权威、每次落盘重算（syncCultivationRates），别手改 —— 会被覆盖。
+      cultivationRate: 1,
       specialConstitution: '',
       birthYear: 0,
       age: 0,
@@ -735,7 +768,6 @@ export function makeEmptySnapshot(id, kind = 'npc', partial = {}) {
       coordinates: [0, 0],
       figure: '',
       appearance: '',
-      appearanceDetails: '',
     },
     bio: {
       background: '',
@@ -745,11 +777,16 @@ export function makeEmptySnapshot(id, kind = 'npc', partial = {}) {
       currentMotive: '',
       shortTermGoal: '',
       longTermGoal: '',
+      // 承诺三槽位（2026-09-28）：NPC 许下或接下的诺言，空槽留空。
+      // 每格是一行文本，三段用全角竖线分隔：要做什么｜欠了谁｜什么时候到期
+      // （读写口径见 snapshotV2 的 parsePromise / normalizePromiseText / promiseSummaryText）。
+      // ⚠ 只给 NPC —— 主角的承诺由玩家自己掌握，AI 不许写（applyEdits 里有拦截）。
+      promise1: '',
+      promise2: '',
+      promise3: '',
     },
-    social: { bondedToPlayer: false },
     economy: {
       spiritStones: 0,
-      spiritStoneBreakdown: { lowGrade: 0, midGrade: 0, highGrade: 0, topGrade: 0 },
     },
     equipment: newEquipmentSlots(),
     inventory: [],
@@ -765,43 +802,14 @@ export function makeEmptySnapshot(id, kind = 'npc', partial = {}) {
       cooking: { tier: '未入门', progress: 0 },
       planting: { tier: '未入门', progress: 0 },
     },
-    techniqueMasteries: {},
-    spiritBeasts: [],
-    // 肖像提示词
-    portraitPrompt: '',
-    // 成人内容字段（参照快照实例）
-    adult: {
-      sensitiveTraits: [],
-      publicKinks: '',
-      privateKinks: '',
-      genitalState: '静止沉睡态，无明显充血或勃起迹象。',
-      desire: 0,
-      pleasure: 0,
-      sexualConception: '',
-      sexExperience: '',
-    },
-    // 阵营归属（参照主角快照实例）
-    factionAffiliation: {
-      factionId: '',
-      status: 'member',
-      memberRank: 'outer',
-      discipleship: 'none',
-      officeSlotIds: [],
-      lifetimeContribution: 0,
-      spendableContribution: 0,
-      countsAgainstCohort: false,
-      joinedAt: '',
-    },
     // legacy 列（参照快照实例的 columns + isOnscreen）
     legacy: {
       columns: {},
       isOnscreen: true,
     },
   };
-  // 主角专有块（原 `base.player`，13 项）已于 2026-09-22 按玩家要求整体删除：
-  // 其中 8 项（头像外观 / 是否极端 / 是否在洞府 / 绿瓶剧情编号 / 主角特质 / 叙事人称 /
-  // 叙事代词 / 修炼经验进度）全项目零读取；另外 5 项里也只有「修为进度」有实际写入路径，
-  // 其余四项除建档初值外没人改。修为进度现在与 NPC 同住 `identity.realmProgress`。
+  // 主角专有块 `base.player` 已整体删除，不要加回来：其中 8 项全项目零读取，
+  // 另外 5 项里只有「修为进度」有实际写入路径 —— 它与 NPC 同住 `identity.realmProgress`。
   // 旧档残留由 saveSanitize 的 stripPlayerBlockInPlace 幂等搬家并清块。
   return deepMerge(base, partial);
 }
@@ -838,6 +846,10 @@ export function snapshotFromCharacter(char, opts = {}) {
   //   主角没有真名就留空，由界面显示「未命名」，绝不用 ID 顶替。
   const realName = String(char.name ?? '').trim();
   const identityName = realName || (kind === 'player' ? '' : id);
+  // 灵根倍率按**灵根文字**反查（NPC 没有建档页那套 typeId，只能靠文字）；
+  // 建档时装备槽是空的 ⇒ 自身修炼倍率就等于灵根倍率，之后每次落盘由 syncCultivationRates 重算。
+  const linggenText = char.root ? rootDisplayName(char.root) : (opts.isPlayer ? '无灵根' : '');
+  const linggenRate = rootRateFromText(linggenText) ?? ROOT_CULTIVATE_RATE[char.root?.typeId] ?? 1;
 
   return makeEmptySnapshot(id, kind, {
     id,
@@ -847,8 +859,9 @@ export function snapshotFromCharacter(char, opts = {}) {
       gender: char.gender || '男',
       realm: char.realm?.name || '凡人',
       realmProgress: 0,
-      linggen: char.root ? rootDisplayName(char.root) : (opts.isPlayer ? '无灵根' : ''),
-      linggenCultivationSpeedMultiplier: ROOT_CULTIVATE_RATE[char.root?.typeId] ?? 1,
+      linggen: linggenText,
+      linggenCultivationSpeedMultiplier: linggenRate,
+      cultivationRate: linggenRate,   // 装备槽还是空的 ⇒ 装备倍率 1.0
       personality: persBrief,
       identityRoles: [char.origin?.name].filter(Boolean),
       birthYear: opts.birthYear ?? (opts.startYear ? opts.startYear - age : -age),
@@ -889,15 +902,16 @@ export function snapshotFromCharacter(char, opts = {}) {
       currentMotive: '',
       shortTermGoal: '',
       // 长期目标留空由剧情演化填写。
-      // 【历史 bug】这里曾经写 `性格底色：${persBrief}` —— 性格摘要属于 identity.personality，
-      // 塞进长期目标会让名册的「长期目标」栏显示一句性格描述。
+      // longTermGoal 只放长期目标：塞性格摘要进去会让名册的「长期目标」栏显示一句性格描述。
       longTermGoal: '',
+      // 承诺三槽位（见 makeEmptySnapshot 的同一处说明）：三段「要做什么｜欠了谁｜什么时候到期」，主角不记，只有 NPC 用。
+      promise1: '',
+      promise2: '',
+      promise3: '',
     },
     lifespanRoll: {
       majorRealm: char.realm?.name || '凡人',
-      zScore: 0,
       baseShouyuan: lifespan,
-      rollCount: 0,
     },
     equipment: newEquipmentSlots(),
     inventory: (char.items || []).map(it => ({
@@ -913,8 +927,8 @@ export function snapshotFromCharacter(char, opts = {}) {
     skills: (char.skills || []).map(s => buildSkill({ name: s.name, grade: TIER_TO_GRADE[s.tier] || s.tier, effect: s.desc })).filter(Boolean),
     // 特质词条（mods）由程序按特质库解析填好——AI 不参与属性加成的计算
     traits: (char.traits || []).map(t => ({ name: t.name, desc: t.desc || '', rarity: rarityName(t.rarity), effects: '', mods: resolveTraitMods(t) })),
-    portraitPrompt: char.appearance || '',
-    customColumnValues: {},
+    // 2026-09-28：`portraitPrompt` 已随「去掉所有肖像功能」删除（原值来自建档页填的外貌，
+    // 全项目零读取）。建档页的「外貌」本身仍在 `char.appearance` 上，只是不再抄进快照。
   });
 }
 
@@ -922,14 +936,7 @@ export function snapshotFromCharacter(char, opts = {}) {
 // 统一走快照 v2 视图：扁平中文键，和演化阶段要求 AI 写的口径完全一致。
 // 必须把内部结构快照一并传下去：属性行要展示「自身＋装备＝生效」，
 // 而 v2 的装备格只存物品名，装备加成得从内部结构的装备对象里反查。
-export function snapshotToStateText(snap) {
+export function snapshotToStateText(snap, tables = null) {
   if (!snap) return '（无快照）';
-  return v2SnapshotText(legacyToV2(snap), { snap });
-}
-
-// ---------- 把快照集合转为文本（注入演化提示词） ----------
-export function snapshotsBundleText(snapshots = {}) {
-  const ids = Object.keys(snapshots);
-  if (!ids.length) return '（暂无角色快照）';
-  return ids.map(id => `--- 角色 ${id} ---\n${snapshotToStateText(snapshots[id])}`).join('\n\n');
+  return v2SnapshotText(legacyToV2(snap), { snap, tables });
 }

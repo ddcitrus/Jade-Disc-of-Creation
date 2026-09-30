@@ -1,6 +1,6 @@
 // ===== 战斗触发（AI 指令 → 参战单位）=====
 // 需求：「AI识别到战斗，调用工具。首先利用数值表等等规则校验是否各个人物属性是否正确。
-//        向程序输入双方角色快照（保底血量机制已取消，气血打到 0 才退场）。调用战斗界面」
+//        向程序输入双方角色快照（气血打到 0 才退场）。调用战斗界面」
 //
 // 「调用工具」在本项目里的落地方式：AI 在正文回合末尾输出一段 <battle>…</battle>（JSON）。
 // 本模块负责：解析 → 逐项校验（含数值表校界）→ 产出可直接交给 battleEngine 的参战单位。
@@ -18,7 +18,6 @@ import { buildAfterBattleProtocolText, battleWordQuota } from './mortalProtocols
 // 建档保底：宽容 JSON 与「按标准凡人现造一份可用档」都放在 snapshotV2（建档的唯一模块），
 // 这里只调用 —— 两处各写一套修法必然会漂移。
 import { looseJsonValue, fallbackV2Snapshot, v2ToLegacy, nameFromStoryText } from './snapshotV2.js';
-import { PLAYER_POV_CONTRACT } from '../engine/promptSystem.js';
 import { battleBeforeText, battleWordQuotaText } from '../prompts/contracts.js';
 
 /** 找正文里**最后一段** <battle>…</battle>（同一回合可能写多段，取最后一段生效）。 */
@@ -42,7 +41,7 @@ export function parseBattleBlock(text) {
 }
 
 // 宽松 JSON 的实现已上移到 snapshotV2.looseJsonValue —— 建档块与 <battle> 指令都是 AI 手写的
-// JSON，修法必须同一套（2026-09-20）。本文件不再保留第二份实现。
+// JSON，修法必须同一套。本文件不保留第二份实现。
 
 /**
  * 把正文里的 <battle>…</battle> 整段去掉（它不该给玩家看）。
@@ -118,7 +117,7 @@ export function unitFromSnapshot(save, snap, opts = {}) {
     speedTier: spd.tier,
     spirit: eff('spirit', 10),
     luck: eff('luck', 5),
-    // 会心（百分点）：暴击的底子，取生效值（自身＋特质＋装备）。缺省 = 原先固定的基础暴击率。
+    // 会心（百分点）：暴击的底子，取生效值（自身＋特质＋装备）。缺省 = 基础暴击率。
     crit: eff('crit', CRIT_DEFAULT),
     skills,
     items,
@@ -193,7 +192,7 @@ function collectBattleItems(snap, ownedItems) {
 
 /**
  * 把 <battle> 指令与存档合起来，产出一场可跑的战斗配置。
- * 建档保底（2026-09-20）：指令点名的角色**没有档案**时不再判死，而是按标准凡人现造一份
+ * 建档保底：指令点名的角色**没有档案**时不判死，改为按标准凡人现造一份
  * 让他照常上场（见 recoverSnapshot），临时档随 `recovered` 返回、由调用方落盘并提示玩家核对。
  * 代价是一份待补的档案，换来的是剧情永远不会卡在「剑已出鞘」。
  *
@@ -214,7 +213,7 @@ export function buildBattleFromSpec(save, spec, opts = {}) {
   const snapshots = { ...(save?.charSnapshots || {}) };
   const list = normalizeUnitSpecs(save, spec);
   if (!list.length) {
-    errors.push('战斗指令里没有列出任何参战角色（units 为空），无法开局');
+    errors.push('战斗指令里没有列出任何参战角色（units 为空），无法开局 —— 可点「⚔ 开战」自己挑人');
     return { ok: false, errors, warnings, units: [], mapRecipe: null, kind, allowDeath, clamped: {}, recovered: {} };
   }
 
@@ -226,11 +225,22 @@ export function buildBattleFromSpec(save, spec, opts = {}) {
 
   /** 把一条参战记录变成作战单位；认不出这个角色就返回 false（并记一条 error）。 */
   const takeUnit = (item) => {
-    const id = String(item?.id || '').trim();
+    let id = String(item?.id || '').trim();
     if (!id) { warnings.push('有一条参战记录没有写角色 id，已跳过'); return false; }
+    let snap = snapshots[id];
+    if (!snap) {
+      // AI 常常写成姓名而不是编号 —— 给它的名册此前只有姓名、没有编号（2026-09-25 已补上编号）。
+      // 先按姓名反查一次：对得上就换成档案的编号，别把这条记录丢掉、最后换成"名册第一个人"。
+      const hit = Object.entries(snapshots).find(([k, s]) =>
+        /^[ABC]\d+$/.test(k) && String(s?.identity?.name || '').trim() === id);
+      if (hit) {
+        warnings.push(`参战指令里的「${id}」写的是姓名，已对应到角色档案 ${hit[0]}`);
+        id = hit[0];
+        snap = hit[1];
+      }
+    }
     if (seen.has(id)) return false;
     seen.add(id);
-    let snap = snapshots[id];
     if (!snap) {
       // 建档保底的最后一道（2026-09-20）：点名要他参战、却压根没有档案
       // （建档块没写、或写坏了没救回来）。这里**不判死**——按标准凡人现造一份让他上场，
@@ -240,7 +250,7 @@ export function buildBattleFromSpec(save, spec, opts = {}) {
       //
       // 但**只对合法角色编号兜底**（B1 / C1 / A2…）。编号本身不合规的（AI 写嗨了、
       // 或沿用了旧存档的 npc_xxx）说明这条参战记录是坏的：给它造一份名叫「NOPE_999」的档案
-      // 只会把垃圾带进名册。那种情况仍走下面的「退回默认对阵」，行为与从前一致。
+      // 只会把垃圾带进名册。那种情况记一条 error、由调用方如实告诉玩家（不再偷偷换人开打）。
       if (!/^[ABC]\d+$/.test(id)) {
         errors.push(`战斗指令引用了不存在的角色 ${id}——该角色没有快照，无法参战（正文里要先为他建档）`);
         return false;
@@ -257,22 +267,20 @@ export function buildBattleFromSpec(save, spec, opts = {}) {
     // （saveModel）、数值表页（enforceSnapshotLimits）三处都会先问两句：
     //   · 全局「强制校界」开关（settings.numericTuning.enforce）是不是关了？
     //   · 这个角色在名册「基本信息」里是不是选了豁免？
-    // 建局这一处原先漏了这两问，于是玩家把属性改到 1000、面板显示 1000、落档也留着 1000，
+    // 建局这一处也必须问这两问：漏掉它们，玩家把属性改到 1000、面板显示 1000、落档也留着 1000，
     // 一进战斗却被打回凡人上限 300 —— 他看到的「改了没用」就是这么来的。
     const enforceOn = !(opts.tuning && opts.tuning.enforce === false);
     const r = (enforceOn && isCharClamped(save, id, snap))
       ? clampSnapshotStats(snap, tables, { id, mods: characterClampBonus(save, snap, id) })
       : { snapshot: snap, changes: [] };
-    // 校界改过的必须是**战斗里真正用的那一份**。曾经这里漏了一步：只把 r.snapshot 记进 clamped 落盘，
-    // 建局却仍用旧 snap —— 于是主角的物攻按 15 算（应为 35）、脚力按 15 算（应为 20），
-    // 需求里「先校验属性」这一步就白做了。故作战单位一律从校界后的快照取值。
+    // 校界改过的必须是**战斗里真正用的那一份**：只把 r.snapshot 记进 clamped 落盘、建局却仍用原始 snap，
+    // 主角的物攻就会按 15 算（应为 35）、脚力按 15 算（应为 20），「先校验属性」这一步等于白做。
     const effSnap = r.changes.length ? r.snapshot : snap;
     if (r.changes.length) {
       clamped[id] = r.snapshot;
       warnings.push(`${snap.identity?.name || id} 有 ${r.changes.length} 处属性越界，已按数值表写回边界`);
     }
-    const side = item.side === 'right' || item.side === '右' ? 'right'
-      : (item.side === 'left' || item.side === '左' ? 'left' : null);
+    const side = normalizeSide(item.side);
     units.push(unitFromSnapshot(save, effSnap, {
       id,
       side: side || 'left',
@@ -286,52 +294,52 @@ export function buildBattleFromSpec(save, spec, opts = {}) {
   for (const item of list) takeUnit(item);
 
   if (!units.length) {
-    // 布置里点名的角色**一个都对不上**（多半是引用了从没建过档的人）。
-    // 这里不能直接放弃：战斗模式一旦打开，AI 就被明确告知「胜负由程序裁定、你不许写结果」，
-    // 若程序也不开局，剧情会永久停在"剑已出鞘"那一刻，谁也推不动。
-    // 于是退回与「布置写空」完全相同的兜底：主角 vs 存档里的第一位 NPC。
-    if (Object.keys(snapshots).length >= 2) {
-      warnings.push('战斗布置里点名的角色都没有快照，已改为按默认规则开局（主角对阵存档中第一位 NPC）');
-      errors.length = 0;
-      for (const item of normalizeUnitSpecs(save, {})) takeUnit(item);
-    }
-  }
-
-  if (!units.length) {
-    errors.push('存档里可参战的角色不足两人，战斗无法开始');
+    // 布置里点名的角色**一个都对不上**（引用了从没建过档的人，或编号写坏了）。
+    // 这里**不再**退回「主角 vs 名册里第一位 NPC」——2026-09-25 玩家报的事故就是它：
+    // 剧情里要打赵子平，程序把对手悄悄换成了同场的林清菡（她在名册里排第一），
+    // 而且界面上一个字都没说（旧写法还会把 errors 清空、把这次开局判成"成功"）。
+    // 宁可不开局：玩家可以点那一行的「⚔ 开战」自己挑人，或对本回合重新生成。
+    errors.push('战斗指令点名的角色都没能对上角色档案，已放弃自动开局 —— 请核对正文里的角色编号，'
+      + '或点「⚔ 开战」自己挑人开打');
     return { ok: false, errors, warnings, units: [], mapRecipe: null, kind, allowDeath, clamped, recovered };
   }
 
-  // 没写 side 的：按出场顺序左右各半
+  // 点名的角色里**有认不出来的**（errors 非空）→ 不再靠"补人凑数"把局面圆过去。
+  // 否则 AI 写「B1 + 赵子平（写成姓名）」时，赵子平那条被丢掉、程序按顺序补上名册里的第一个 NPC，
+  // 玩家看到的又是一场打错人的架（2026-09-25 的事故正是这么发生的）。
+  if (errors.length) {
+    return { ok: false, errors, warnings, units: [], mapRecipe: null, kind, allowDeath, clamped, recovered };
+  }
+
+  // 没写阵营的：主角（B1）单独一方，其余全在对面。
+  // 原来是「按出场顺序前后各半」—— 主角只有一个、对面常常是一群，三人以上必然分错（2026-09-25）。
   if (!list.some(x => x.side)) {
-    const half = Math.ceil(units.length / 2);
-    units.forEach((u, i) => { u.side = i < half ? 'left' : 'right'; });
-    warnings.push('战斗指令没写阵营，已按出场顺序前后各半分成两方');
+    warnings.push(splitByOrder(units)
+      ? '战斗指令没写阵营，已按「主角一方、其余角色在对面」分配'
+      : '战斗指令没写阵营，已按出场顺序前后各半分成两方');
   } else if (units.length >= 2 && !units.some(u => u.side === 'right')) {
-    // 两边都写了但都写成同一方：把后半数挪到对面
-    const half = Math.ceil(units.length / 2);
-    units.forEach((u, i) => { u.side = i < half ? 'left' : 'right'; });
-    warnings.push('战斗指令只标了一方阵营，已把后半数角色划为另一方');
+    // 两边都写了但都写成同一方
+    warnings.push(splitByOrder(units)
+      ? '战斗指令只标了一方阵营，已按「主角一方、其余角色在对面」分配'
+      : '战斗指令只标了一方阵营，已把后半数角色划为另一方');
   }
 
   // 地块表外名字 → 平地（AI 只能选，不能自造）
   const mapRecipe = normalizeMapRecipe(spec?.map, warnings, { seed: opts.seed });
 
-  // 保底血量机制已于 2026-09-20 取消：无论寻常交手还是死斗，floorHpPercent 一律 0，
-  // 气血可一路扣到 0、归零才退出战斗（生死由战后 AI 叙事描写）。AI 即使写了该字段也忽略。
+  // floorHpPercent 一律 0：气血可一路扣到 0、归零才退出战斗（生死由战后 AI 叙事描写）。
+  // AI 即使写了该字段也忽略。
   for (const u of units) u.floorHpPercent = 0;
 
   if (!units.some(u => u.side === 'left') || !units.some(u => u.side === 'right')) {
-    // 布置里只有一方有人（或分完还是一家）→ 同上，不能把剧情卡死在这里：
-    // 补上存档里的其他角色凑成两方，而不是拒绝开局。
+    // 只列出了一方 → 补上存档里的其他角色凑成两方（不能把剧情卡死在这里）。
+    // ⚠ 补完人**不再把整队按出场顺序重排对半**：那会把 AI 已经写明的「谁跟谁一边」全部推翻。
     const spare = Object.keys(snapshots).filter(k => !seen.has(k));
     for (const id of spare) {
       if (units.some(u => u.side === 'left') && units.some(u => u.side === 'right')) break;
       takeUnit({ id, side: units.some(u => u.side === 'left') ? 'right' : 'left' });
     }
-    if (units.length > 1) {
-      const half = Math.ceil(units.length / 2);
-      units.forEach((u, i) => { u.side = i < half ? 'left' : 'right'; });
+    if (units.some(u => u.side === 'left') && units.some(u => u.side === 'right')) {
       warnings.push('战斗布置只列出了一方，已把存档里的其他角色补到对面');
     }
   }
@@ -392,9 +400,52 @@ function normalizeMapRecipe(raw, warnings, opts = {}) {
   return { base: field.base, patches: field.patches };
 }
 
+/**
+ * 阵营写法归一：left/right、我 / 我方 / 自己人 / 友方、敌 / 敌方 / 对手、左 / 右…… 都认。
+ * 认不出返回 null（由调用方决定怎么兜）。
+ * 起因（2026-09-25）：AI 写 side:"我方" 时全落空 → 两边都判成"没写阵营" → 程序重排对半 → 打错人。
+ */
+function normalizeSide(v) {
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  if (/right|右|敌|对手|对头/i.test(s)) return 'right';
+  if (/left|左|我|友|己方/i.test(s)) return 'left';
+  return null;
+}
+
+/**
+ * 分组界面的键名（{"我方":[…],"敌方":[…]}）。
+ * AI 有时把这份分组**直接写在 <battle> 顶层**、外面不套 units —— 那本来是一份合法布置，
+ * 此前因为只认 units 里的分组，整份被忽略，静默退回「主角打名册里第一个人」。
+ */
+const UNIT_GROUP_KEYS = ['left', 'right', '我', '我方', '敌', '敌方', '左', '右', '友', '友方'];
+
+function isGroupObject(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+  return Object.keys(obj).some(k => UNIT_GROUP_KEYS.includes(String(k).trim()));
+}
+
+/**
+ * 按出场顺序分阵营，返回是否用上了「主角单独一方」的规则。
+ * 主角只有一个、对面常常是一群：没有阵营信息时**把主角放一方、其余全放对面**，
+ * 比「人数对半」贴近剧情。只有存档里根本没有主角编号时才退回对半。
+ */
+function splitByOrder(units) {
+  const me = units.findIndex(u => u.id === 'B1');
+  if (me >= 0) {
+    units.forEach((u, i) => { u.side = i === me ? 'left' : 'right'; });
+    return true;
+  }
+  const half = Math.ceil(units.length / 2);
+  units.forEach((u, i) => { u.side = i < half ? 'left' : 'right'; });
+  return false;
+}
+
 /** 参战清单：AI 可写 units / 参战 / 双方，元素可以是 id 字符串或 {id,side,…}。 */
 function normalizeUnitSpecs(save, spec) {
-  const raw = spec?.units ?? spec?.参战 ?? spec?.双方 ?? spec?.characters;
+  let raw = spec?.units ?? spec?.参战 ?? spec?.双方 ?? spec?.characters ?? spec?.参战名单;
+  // 分组键直接写在顶层，就把它整份当布置
+  if (raw == null && isGroupObject(spec)) raw = spec;
   const out = [];
   const push = (v, side) => {
     if (v == null) return;
@@ -404,7 +455,7 @@ function normalizeUnitSpecs(save, spec) {
     if (id == null) return;
     out.push({
       id: String(id),
-      side: v.side ?? v.阵营 ?? side,
+      side: normalizeSide(v.side ?? v.阵营 ?? v.队伍) ?? side,
       title: v.title ?? v.称号 ?? '',
       // name/realm/gender：只在「这个人没建档、需要兜底造档」时用来给档案一个好称呼与境界，
       // 建过档的人一律以档案为准（AI 顺手写的名字不改官方档案）
@@ -416,18 +467,18 @@ function normalizeUnitSpecs(save, spec) {
   };
   if (Array.isArray(raw)) { raw.forEach(v => push(v, null)); return out; }
   if (raw && typeof raw === 'object') {
-    // { left: [...], right: [...] } 或 { 左: [...], 右: [...] }
+    // { left: [...], right: [...] } 或 { 我方: [...], 敌方: [...] }
     for (const [k, arr] of Object.entries(raw)) {
-      const side = /right|右|敌/.test(k) ? 'right' : (/left|左|我/.test(k) ? 'left' : null);
+      const side = normalizeSide(k);
+      if (!side) continue;   // kind / map / note / allowDeath 不是分组键，跳过
       if (Array.isArray(arr)) arr.forEach(v => push(v, side));
       else push(arr, side);
     }
     return out;
   }
-  // 完全没写：默认「主角 + 存档里的第一位 NPC」打一场
-  if (save?.charSnapshots?.B1) out.push({ id: 'B1', side: 'left' });
-  const npcs = Object.keys(save?.charSnapshots || {}).filter(k => k !== 'B1');
-  if (npcs.length) out.push({ id: npcs[0], side: 'right' });
+  // 完全没写参战名单：**不再默认「主角打名册里第一位 NPC」**。
+  // 那是 2026-09-25「打错人」事故的源头之一 —— AI 少写了 units，程序就自己挑一个人开打，
+  // 界面上还只飘一句不相干的提示。宁可不开局（玩家可以点「⚔ 开战」自己挑人）。
   return out;
 }
 
@@ -442,11 +493,11 @@ export function describeBattleSetup(res) {
  * 战后叙事请求：把程序打出来的战报交回 AI，让它写"过程与结果"的文字。
  * 这是需求里「程序把战斗日志返回 AI / AI 接受日志，编写文字描述过程与结果」那一步。
  *
- * 2026-09-19 重写（方案 B：和平时的正文请求同源）。改了三处：
- *   ① 提示词不再现写一份，改由【Mortal 战后叙事协议】承担（设置页可编辑，见 mortalProtocols）；
- *   ② 数值约束**不再复制**，由协议里的 ${proseNumbers} 引用设置页那一份 —— 改一处、两处生效；
+ * 三件事：
+ *   ① 提示词由【Mortal 战后叙事协议】承担（设置页可编辑，见 mortalProtocols）；
+ *   ② 数值约束用协议里的 ${proseNumbers} 引用设置页那一份 —— 改一处、两处生效；
  *   ③ 末尾补上与「自动下回合」完全相同口径的两条硬约束：篇幅、视点。
- * 为什么必须补数值约束：旧版整条请求里搜「正文数值约束」= 0 处，而战报里逐行写着
+ * ② 不能省：少了它，整条请求里搜「正文数值约束」= 0 处，而战报里逐行写着
  * 「［古兰 气血 600/3000］」—— AI 照抄，就写成了「气血两千九百九十八点」。
  *
  * @param {object} save 存档（提供时空与人物语境）
@@ -478,13 +529,12 @@ export function battleNarrativeMessages(save, outcome, ctx = {}, settings = null
   return [
     { role: 'system', content: buildAfterBattleProtocolText(save, settings) },
     { role: 'user', content: user },
-    // 末尾两条与「自动下回合」的顺序、口径完全一致（篇幅 → 视点），服从度最高。
+    // 末尾一条与「自动下回合」的篇幅口径一致（篇幅），服从度最高。
     // 篇幅：给「区间」模型会贴下限写，故锚定区间上半段并给出明确目标字数。
     {
       role: 'system',
       content: battleWordQuotaText(quota),
     },
-    { role: 'system', content: PLAYER_POV_CONTRACT },
   ];
 }
 

@@ -13,17 +13,17 @@ export const LAYOUT_ZONES = [
   {
     id: 'stable',
     name: '恒定基座',
-    desc: '逐回合逐字节相同。必须排在最前，前缀缓存才有命中空间。',
+    desc: '每回合都完全一样的内容。排在最前面。',
   },
   {
     id: 'dynamic',
     name: '变化区',
-    desc: '逐回合变化。越靠后离本轮行动越近，模型的注意力越集中。',
+    desc: '每回合都会变的内容。越靠后离本轮行动越近。',
   },
   {
     id: 'tail',
     name: '末尾契约',
-    desc: '恒定但必须留在最后。少量重算换取末尾指令的服从度。',
+    desc: '内容固定，但留在最后效果最好。',
   },
 ];
 
@@ -32,7 +32,7 @@ export const LAYOUT_BLOCKS = [
   {
     id: 'presetStatic', zone: 'stable',
     name: '预设 · 静态段',
-    desc: '预设中渲染结果不随回合变化的段落（身份、世界观、写作风格、对白指导等）。运行时自动判定。',
+    desc: '预设中不随回合变化的段落（身份、世界观、写作风格、对白指导等）。',
   },
   {
     id: 'wbAlways', zone: 'stable',
@@ -42,12 +42,12 @@ export const LAYOUT_BLOCKS = [
   {
     id: 'protocolStatic', zone: 'stable',
     name: '静态协议',
-    desc: '状态栏、语义渲染、战斗推演、修炼结算四段协议。时空数值已改为由「当前时空」区块给出。',
+    desc: '状态栏、语义渲染、战斗推演、修炼结算四段协议。',
   },
   {
     id: 'numeric', zone: 'stable',
     name: '数值表',
-    desc: '境界与属性的数值基准。全请求最大的一块（约 2 万字），恒定。',
+    desc: '境界与属性的数值基准。',
   },
   {
     id: 'palette', zone: 'stable',
@@ -57,42 +57,37 @@ export const LAYOUT_BLOCKS = [
   {
     id: 'presetDynamic', zone: 'dynamic',
     name: '预设 · 动态段',
-    desc: '预设中引用了占位符的段落（剧情指导、人物行为、玩家快照、场景信息等）。运行时自动判定。',
+    desc: '预设中引用了占位符的段落（剧情指导、人物行为、玩家快照、场景信息等）。',
   },
   {
     id: 'textRules', zone: 'dynamic',
     name: '文风 · 字数 · 人称',
-    desc: '「正文规则与文风」里设定的文风、字数区间、叙事人称。预设没引用对应占位符时在这里补注入。',
+    desc: '「正文规则与文风」里设定的文风、字数区间、叙事人称。',
   },
   {
     id: 'memory', zone: 'dynamic',
     name: '叙事记忆',
-    desc: '阶段总结 + 回合摘要。预设未引用 {{narrativeMemory}} 时才注入。',
+    desc: '阶段总结 + 回合摘要。预设没带这份内容时才注入。',
   },
   {
     id: 'wbHits', zone: 'dynamic',
     name: '世界书 · 命中条目',
-    desc: '按关键词命中的世界书条目，随最近剧情变化。预设未引用 {{worldbook}} 时才注入。',
+    desc: '按关键词命中的世界书条目，随最近剧情变化。预设没带这份内容时才注入。',
   },
   {
     id: 'sceneTime', zone: 'dynamic',
     name: '当前时空',
-    desc: '当前时间、地点、季节、天气。协议不再自带真实时空，改由这一块统一给出。',
+    desc: '当前时间、地点、季节、天气。协议段里的时空占位符由这一块的实际数值填充。',
   },
   {
     id: 'history', zone: 'dynamic',
     name: '最近剧情',
-    desc: '最近 4 回合正文。请求里最大的单块变化内容。预设未引用 {{storyText}} 或 ${Chat History} 时才注入。',
+    desc: '最近 4 回合正文。预设没带这份内容时才注入。',
   },
   {
     id: 'contract', zone: 'tail',
     name: '输出契约',
-    desc: '「本轮只输出正文、禁止代码块」等末尾约束。内容固定，恒定但留在最后效果最好。',
-  },
-  {
-    id: 'playerPov', zone: 'tail',
-    name: '主角心理留白',
-    desc: '禁止代写主角的内心、情绪、态度与评价（玩家主权）。预设里若有「大量内心独白」这类风格要求，只有它压得住。',
+    desc: '「本轮只输出正文、禁止代码块」等末尾约束。内容固定，留在最后效果最好。',
   },
   {
     id: 'extraConstraints', zone: 'tail',

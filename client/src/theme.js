@@ -1,18 +1,21 @@
 /*
- * 主题开关：'dark'（玄墨，默认）/ 'light'（宣纸）。
+ * 主题开关：'dark'（浓墨，默认）/ 'light'（淡墨）。
  *
  * 只改 <html data-theme> 这一个属性 —— 两套配色全部写在 guigu.css 的令牌里，
  * 所以切换主题不牵动任何布局、也不重新渲染任何组件（不会闪、不会丢状态）。
  *
  * 单独成文件是为了让「启动时读一次」和「顶栏按钮改一次」用同一份逻辑；
  * 若写进 main.jsx，GameDashboard 就得反过来 import main.jsx，形成循环依赖。
+ *
+ * ⚠ 内部 id 仍是 dark / light（存档与本机缓存里存的就是这两个字），
+ *   这里改的只是**给玩家看的名字**。改 id 会让老玩家的主题设置失效。
  */
 
 export const THEME_KEY = 'mortal-theme';
 
 export const THEMES = [
-  { id: 'dark', name: '玄墨', hint: '夜里读' },
-  { id: 'light', name: '宣纸', hint: '白天读' },
+  { id: 'dark', name: '浓墨', hint: '墨色沉' },
+  { id: 'light', name: '淡墨', hint: '宣纸白' },
 ];
 
 export function readTheme() {

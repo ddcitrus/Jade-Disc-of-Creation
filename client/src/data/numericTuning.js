@@ -1,11 +1,16 @@
 // ===== Mortal 数值体系（详细数值表） =====
 // 数据源：mortal-numeric-tuning.json（现存 2 张：境界基准 / 装备品阶基准，与下方 TABLE_META 条目数一致）
-// 2026-09-17 精简：原 37 张 → 2 张。技能系数五张表搬进 skillCodex.js（按品阶现算、写进角色快照的技能项，AI 不再查表）；
-// 其余 30 张无程序消费方、预设与协议中亦无引用，全部退役。
+// 技能系数五张表在 skillCodex.js（按品阶现算、写进角色快照的技能项，AI 不查表）；
+// 其余表无程序消费方、预设与协议中亦无引用，不入库。
 // 退役表的原数据曾另存归档，该归档目录已在文档清理时删除（不可恢复）。
 // 注入位置：正文提示词 {{numericRules}}（数值变化的唯一判定依据）
 // 设置页「故事设定与数值规则 → 数值规则表」可导入自定义 JSON / 逐表启停。
-import defaultTuning from './mortal-numeric-tuning.json';
+// ⚠ `with { type: 'json' }` 不能省：服务端是 `node index.js` 直跑 ESM，只要这条链被
+//   服务端 import 到（server/index.js → snapshotV2 → snapshotSchema/cultivationParams → 本文件），
+//   裸 import JSON 就会抛 ERR_IMPORT_ATTRIBUTE_MISSING，后端在 listen 之前直接退出。
+//   2026-09-26 踩过一次（症状：双击启动脚本，窗口打印一堆 assert 栈后自动关闭）。
+//   vite 5（rollup 4）与 esbuild 0.21 都接受这个写法，改回裸 import 会重新引入该崩溃。
+import defaultTuning from './mortal-numeric-tuning.json' with { type: 'json' };
 
 export const DEFAULT_NUMERIC_TUNING = defaultTuning;
 
@@ -13,7 +18,7 @@ export const DEFAULT_NUMERIC_TUNING = defaultTuning;
 export const TABLE_META = {
   realmProfiles: { name: '境界基准表', desc: '各境界 HP/MP/神识/攻防/穿透/速度 的基准值与上限，以及该境界的寿元' },
   equipmentBaseByGrade: { name: '装备品阶基准', desc: '1~36 品装备各主属性基准值' },
-  // ↓ 其余 35 张表已于 2026-09-17 退役，不再注入：
+  // ↓ 其余 35 张表不注入：
   //   · 技能伤害倍率 / 技能耗蓝基准 / 技能资源伤害占比 / 技能回血倍率 / 技能回蓝倍率
   //     → 数值原样搬进 skillCodex.js 后，改为「品阶直连模型」：**品阶（1~36）就是强度的唯一出处**，
   //       伤害倍率 = 1.2^品阶（1 品 1.20 倍 → 36 品 708.8 倍，每高一品强两成），耗灵力与回复量按品阶
@@ -50,8 +55,7 @@ export const TABLE_FIELD_ALIAS = {
 };
 
 // ---------- 条目键中文映射 ----------
-// 现役两张表的条目键本身就是「境界名」与「品阶数字」，无需翻译，原样输出。
-// 原先那批键标签（法宝阶别 / 跨境差 / 灵兽种类 / 战斗行动 / 特质稀有度…）随各自退役表一并删除。
+// 现役表的条目键本身就是「境界名」「品阶数字」这类原文，无需翻译，原样输出。
 export const keyLabel = (k) => k;
 
 // 表内字段标签（带表级别名）
@@ -185,12 +189,6 @@ export function getEffectiveTables(tuning) {
   }
   const userTables = (t && typeof t === 'object' && t.tables && typeof t.tables === 'object') ? t.tables : null;
   return { ...(defaultTuning.tables || {}), ...(userTables || {}) };
-}
-
-// 该表是否被用户改过（用户覆盖层里存在即视为已改动）
-export function isTableOverridden(tuning, tableKey) {
-  const t = (tuning && typeof tuning === 'object' && tuning.numericTuning) ? tuning.numericTuning : tuning;
-  return !!(t && t.tables && typeof t.tables === 'object' && Object.prototype.hasOwnProperty.call(t.tables, tableKey));
 }
 
 /**

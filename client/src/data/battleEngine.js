@@ -35,13 +35,12 @@ export const TUNING = {
   MOVE_SPEED_LO: 20,                    // 凡人脚力
   MOVE_SPEED_HI: 5.7075826223144e14,    // 道祖脚力
 
-  // 闪避：已于 2026-09-18 整体取消 —— 出手不再掷命中判定，攻击必然命中。
-  // 脚力现在只管两件事：出手间隔（battleSpeed.js 的档位表）与每回合走位格数。
-  // 原先闪避的三个来源（脚力比值、地形 dodge、威吓 aimDebuff）分别被删除 / 迁移。
+  // 没有闪避这回事：出手不掷命中判定，攻击必然命中。
+  // 脚力只管两件事：出手间隔（battleSpeed.js 的档位表）与每回合走位格数。
 
   // 暴击
   // 2026-09-18：暴击底子改成角色的「会心」属性（单位＝百分点，见 snapshotSchema 的 ATTR_LABELS）。
-  // 下面这个常量只是**兜底**：单位没带会心时按 5 算，正好等于改版前的基础暴击率 5%。
+  // 下面这个常量只是**兜底**：单位没带会心时按 5 算（基础暴击率 5%）。
   CRIT_DEFAULT: 5,
   CRIT_LUCK_COEF: 0.40,             // 气运满值（100）时贡献的暴击率：线性，一点气运 0.4 个百分点
   CRIT_LUCK_MAX_LUCK: 100,          // 气运属性的硬上限（与 attrClamp 的 FIXED_BOUNDS.luck 同值，探针锁死两处）
@@ -65,7 +64,7 @@ export const TUNING = {
 // ---------- 小工具 ----------
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
-// 战报里的小数一律保留三位。曾经用两位，于是「威力 1.73 × 运气 0.55 → 倍率 0.94」
+// 战报里的小数一律保留三位：少于三位时「威力 1.73 × 运气 0.55 → 倍率 0.94」
 // 读起来像算错了（1.73 × 0.55 = 0.95）—— 那只是两个因子各自被四舍五入过。
 // 三位之后写出来就是 1.728 × 0.545 ≈ 0.942，玩家能自己验算。
 const r3 = (v) => Math.round(num(v, 0) * 1000) / 1000;
@@ -202,8 +201,8 @@ function normalizeCombatant(raw, kind, allowDeath) {
   const mpMax = Math.round(num(raw.mpMax ?? pick('mp'), 0));
   const hp = clamp(Math.round(num(raw.hp ?? hpMax, hpMax)), 0, hpMax);
   const mp = clamp(Math.round(num(raw.mp ?? mpMax, mpMax)), 0, mpMax);
-  // 「保底血量」机制已于 2026-09-20 取消：不再有「打到某条血线就停手」，hp 一路可扣到 0。
-  // 仍保留 floorHpPercent / floorHp 两个字段（恒为 0）以兼容旧存档与界面，但不再参与任何计算。
+  // hp 一路可扣到 0，不存在「打到某条血线就停手」。
+  // floorHpPercent / floorHp 两个字段恒为 0，只为兼容旧存档与界面而保留，不参与任何计算。
   const floorPct = 0;
   const floorHp = 0;
 
@@ -330,7 +329,7 @@ function firstFreeCell(grid, used) {
 /**
  * 交出回合、推进行动条 —— **整个回合里唯一会换手的地方**。
  *
- * 2026-09-19 起它不再由「出手」顺手触发（那版是「出手即交出回合」，已作废）：
+ * 它不由「出手」触发（出手不交出回合）：
  *   · 玩家侧：走完、打完之后自己点「结束回合」（BattleView 底部那个按钮）。
  *   · 敌方侧：battleAI.runEnemyTurn 在收尾时显式调用。
  * 地形回合结算（沼泽流失 / 灵脉回复）与威吓折减的清除都挂在这里，
@@ -394,7 +393,7 @@ function applyTerrainTurn(state, u) {
  *
  * ⚠️ 2026-09-19 起：**出过手也照样能走**。移动与出手是两笔独立的额度，
  * 互不锁死 —— 玩家可以「走两步 → 打一拳 → 再退开」，这正是他要的「移动、攻击、移动」。
- * 走位额度单看 moved/budget，不再看 acted。改成「出手后不许动」那版已经作废。
+ * 走位额度单看 moved/budget，不看 acted。
  */
 export function currentReach(state) {
   const u = state.units[state.actorId];
@@ -669,11 +668,6 @@ export function critProfile(state, actor, target) {
   };
 }
 
-/** 暴击率（0~1）。critProfile 的薄封装，供只关心概率的调用方使用。 */
-export function critRate(state, actor, target) {
-  return critProfile(state, actor, target).chance;
-}
-
 /**
  * 地形造成的伤害倍率（不含姿态）。
  * 守方脚下地形决定「挨打」，攻方脚下地形决定「打人」，两段再叠乘：
@@ -854,7 +848,7 @@ function attackAudit(o) {
 
 /** 扣血（hp 可一路扣到 0；归零即退出战斗）。返回是否有伤害、以及是否因此退出（退出由调用方在写完战报后再标记）。 */
 function applyHpLoss(state, target, dmg, source = '', attacker = null) {
-  // 不再有保底血线：气血 = max(0, 当前 − 来势)，扣到 0 为止，绝不抬血。
+  // 气血 = max(0, 当前 − 来势)，扣到 0 为止，绝不抬血。
   const hurt = Math.max(0, Math.round(dmg));
   const next = Math.max(0, target.hp - hurt);
   const applied = target.hp - next;
@@ -910,7 +904,7 @@ export function resolveHeal(state, actor, target, spec = {}) {
 /**
  * 执行一次出手（普攻 / 功法 / 器物 / 防御 / 蓄力 / 威吓 / 逃遁 / 投降）。
  *
- * ⚠️ 2026-09-19 起**出手不再自动结束回合**：一个回合的额度分成两笔 ——
+ * ⚠️ **出手不自动结束回合**：一个回合的额度分成两笔 ——
  * 走位额度（budget/spent）与出手额度（acted），两笔各自独立、互不锁死。
  * 所以玩家可以「走 → 打 → 再走」，打完还留着自己的回合；真正交出回合只有一条路：
  * 玩家点「结束回合」（见 endTurn），敌方的收尾由 battleAI.runEnemyTurn 显式调用。
@@ -998,7 +992,7 @@ export function doAction(state, id, action) {
   // 这一手结算的过程中可能已经把战斗打完了（resolveAttack → checkEnd → finish 会清空 state.turn），
   // 所以必须先确认战斗还在进行，再去碰 state.turn。
   if (state.finished || !state.turn) return { ok: true };
-  // 2026-09-19：出手**不再自动交出回合**。只记上「本回合已出过手」，回合仍留在他手里 ——
+  // 出手**不交出回合**。只记上「本回合已出过手」，回合仍留在他手里 ——
   // 他还能拿剩下的走位额度继续挪。所以这里不推进行动条、也不做地形回合结算，
   // 那些统统归 endTurn（玩家点「结束回合」时才发生）。
   state.turn.acted = true;
@@ -1052,13 +1046,13 @@ function pushLog(state, entry) {
  * 规则：数字全部由程序给出，AI 只能照抄，不得自行换算。
  *
  * ⚠️ 这里**只放事实**（结果 / 参战双方 / 逐回合过程），不放任何「怎么给 AI 下指令」的话。
- * 两个原因（2026-09-19 修）：
+ * 两个原因：
  *   ① 这份文本同时会原样贴在玩家屏幕上的战报卡里（GameDashboard 的 <pre>），
  *      夹带提示词内务等于把「写正文的要求」给玩家看；
- *   ② 它以前自带三条「写正文的要求」，其中第 1 条写着「正文里出现的伤害、剩余气血、耗蓝
- *      必须与战报一致」—— 与战后协议里的「不要罗列数据」直接打架，AI 听了硬的那条，
- *      于是把战报里的「气血 600/3000」抄成「气血两千九百九十八点」写进散文。
- * 现在「写正文的要求」只有一处：协议里的【Mortal 战后叙事协议】（设置页可改）。
+ *   ② 一旦这里写「正文里的伤害与剩余气血必须与战报一致」，就会与战后协议的
+ *      「不要罗列数据」直接打架 —— AI 听硬的那条，于是把战报里的「气血 600/3000」
+ *      抄成「气血两千九百九十八点」写进散文。
+ * 「写正文的要求」只有一处：协议里的【Mortal 战后叙事协议】（设置页可改）。
  */
 export function battleLogText(state, opts = {}) {
   const maxLines = opts.maxLines || 120;

@@ -9,7 +9,7 @@
 // - <log> → 战斗回合日志（AI 漏写 <card> 外壳时的兜底；::log 前缀会被归一）
 // - 结尾连续编号选项行 → 可点击按钮（点击复制文本到发送框）
 // - 行内 [[item|xxx]] 等标记 → 高亮
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { makeColorResolver } from '../data/colorPalette.js';
 import { stripNewCharBlocks } from '../data/snapshotV2.js';
 
@@ -73,6 +73,34 @@ const BLOCK_CLASS = {
   aside: 'mortal-aside', thought: 'mortal-thought', focus: 'mortal-focus',
 };
 
+// ===== 块标记后面的「变体词 / 属性」剥离 =====
+// 块标记（::focus、::aside、::thought…）后面允许跟一个变体词：::focus spell、::aside scroll。
+// 那个词归客户端解释，不是正文的一部分。另有实测到的**写歪形态**——模型把变体当成字段写：
+//     ::focus spell
+//     kind=realm
+//         ↑ 这一整行原本会以纯文本漏进正文，玩家在故事里读到一行 "kind=realm"（2026-09-24 实测存档）。
+// 所以这里统一：头行后面的 token 里，「一个纯 ASCII 变体词」和「任意个 key=value 属性」都算属性，剥掉。
+// ⚠ 只吃纯 ASCII：\w 不含汉字，中文正文绝不可能被这段吃掉（英文正文的损失与旧行为一致，最多一个词）。
+const BLOCK_ATTR_TOKEN = /^[A-Za-z][\w-]*\s*=\s*["']?[^\s"']+["']?$/;
+const BLOCK_WORD_TOKEN = /^\w+$/;
+function stripBlockAttrs(str) {
+  let s = String(str || '').replace(/^[\s\u3000]+/, '');
+  let tookWord = false;
+  for (;;) {
+    const m = s.match(/^(\S+)([\s\S]*)$/);
+    if (!m) break;
+    if (BLOCK_ATTR_TOKEN.test(m[1])) { s = m[2].replace(/^[\s\u3000]+/, ''); continue; }
+    if (!tookWord && BLOCK_WORD_TOKEN.test(m[1])) { tookWord = true; s = m[2].replace(/^[\s\u3000]+/, ''); continue; }
+    break;
+  }
+  return s.trim();
+}
+// 块体开头单独占一行的属性（就是上面那个 kind=realm 的形态）——整行都是 key=value 才算，别误吞正文
+function isBlockAttrLine(line) {
+  const t = String(line || '').trim();
+  return !!t && !/\s/.test(t) && BLOCK_ATTR_TOKEN.test(t);
+}
+
 // 选项行识别：1. 【隐忍离去】 …… / 1、xxx
 const OPT_LINE = /^\s*(\d{1,2})\s*[.、]\s*(.+)$/;
 const OPT_DASH = /^\s*[-•·]\s+(.+)$/; // AI 有时用破折号/圆点列选项（实测：强敌又至回合）
@@ -94,6 +122,32 @@ function matchOptLine(line) {
   const bm = unstarOption(t);
   if (bm) return bm;
   return null;
+}
+
+// 供提示词注入用：把 AI 结尾自拟的「推进选项」整段从历史正文里剥掉。
+// 选项清单会随 storyText 回流下一轮提示词，模型会被自家选项牵着走——
+// 玩家明明下了别的指令却顺着选项 1 写（2026-09-29 冥寒仙府回合实测）。
+// 剥离判据与渲染端同源（matchOptLine，连续 ≥2 行才算选项区），不会误伤普通段落。
+export function stripOptions(src) {
+  const lines = String(src || '').split('\n');
+  const isOpt = (l) => matchOptLine(l) !== null;
+  const isHeader = (l) => /(?:推进选项|行动选项|可选行动|选择|选项)\s*[:：]?\s*$/.test(String(l || '').trim());
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (isOpt(lines[i])) {
+      let j = i;
+      while (j < lines.length && isOpt(lines[j])) j++;
+      if (j - i >= 2) {
+        // 整段剥除，顺带剥掉紧邻的「推进选项：」头与之前的空行
+        while (out.length && !String(out[out.length - 1]).trim()) out.pop();
+        if (out.length && isHeader(out[out.length - 1])) out.pop();
+        i = j;
+        continue;
+      }
+    }
+    out.push(lines[i]);
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // ===== 战斗卡 / 战斗日志 =====
@@ -275,12 +329,13 @@ function CultivationCard({ data }) {
   const isBreak = j.type === 'breakthrough';
   const realm = isBreak ? `${j.from || '?'} → ${j.to || '?'}` : (j.toRealm ? `${j.fromRealm || '?'} → ${j.toRealm}` : (j.realm || ''));
   const progress = j.old != null && j.new != null ? `${j.old}% → ${j.new}%${j.gain != null ? `（+${j.gain}）` : ''}` : '';
-  // 卡上的数字全部由 AI 按修炼协议现算后填（2026-09-22 起，程序不再预填任何一个）：
+  // 卡上的数字全部由 AI 按修炼协议现算后填（程序不预填任何一个）：
   //   time       = 这一场实际花掉的时间（玩家说两天就是两天）；
   //   efficiency = 本轮修炼速度（「×1.4」这种倍率）；
   //   remain     = 照当前进度练满本层还需多久（跨境界/突破卡不填，进度已归零重算）。
   // 为什么不由程序算：耗时的公式里含一项「运气」，每次闭关都在浮动，预先算出来的
   // 数字只对那一刻摇到的运气成立 —— 写进卡片就是假精确（见 data/cultivationParams.js）。
+  //   算式两行（layerCalc / progressCalc）是 AI 本轮现算的过程，只作展示，不进存档。
   const timeText = j.time || '';
   const remainText = j.remain || '';
   const speedText = j.efficiency || '';
@@ -288,6 +343,12 @@ function CultivationCard({ data }) {
     <div className="mortal-cultivation-card">
       <div className="cv-title">{isBreak ? '⚡ 突破 · ' : '☯ 修炼 · '}{j.characterName || ''}</div>
       <div className="cv-row">{realm && <span>境界：<b>{realm}</b></span>}{progress && <span>进度：<b>{progress}</b></span>}{j.bottleneck != null && <span>距瓶颈：<b>{j.bottleneck}</b></span>}</div>
+      {(j.layerCalc || j.progressCalc) && (
+        <div className="cv-row cv-calc">
+          {j.layerCalc && <span>{j.layerCalc}</span>}
+          {j.progressCalc && <span>{j.progressCalc}</span>}
+        </div>
+      )}
       <div className="cv-row">{timeText && <span>耗时：<b>{timeText}</b></span>}{remainText && <span>本层还需：<b>{remainText}</b></span>}{speedText && <span>速度：{speedText}</span>}{j.foundation != null && <span>积淀：{j.foundation}</span>}{j.result && <span>结果：{j.result}</span>}</div>
       {j.note && <div className="cv-row" style={{ marginTop: 4 }}><span style={{ color: 'var(--text-dim)' }}>批注：{j.note}</span></div>}
     </div>
@@ -347,19 +408,23 @@ function emitBlocks(src, out, onPickOption, keyBase) {
 
     // ::break 转场
     if (/^::break\b/i.test(trimmed)) {
-      const label = trimmed.replace(/^::break\s*\w*\s*/i, '').trim();
+      // 变体词（time/place/breath）与写歪的属性（::break kind=time）都走同一套剥离
+      const label = stripBlockAttrs(trimmed.replace(/^::break\b/i, ''));
       out.push(<div className="mortal-break" key={keyBase + 'b' + out.length}>{label || '✦'}</div>);
       i++;
       continue;
     }
 
     // 其它 :: 块标记（scene/jade/bamboo/aside/scroll/seal/thought/focus）
-    const bm = trimmed.match(/^::(scene|jade|bamboo|aside|thought|focus)(?:\s+\w*)?\s*(.*)$/i);
+    const bm = trimmed.match(/^::(scene|jade|bamboo|aside|thought|focus)([\s\S]*)$/i);
     if (bm) {
       const kind = bm[1].toLowerCase();
       const blockLines = [];
-      if (bm[2]) blockLines.push(bm[2]);
+      const head = stripBlockAttrs(bm[2]);
+      if (head) blockLines.push(head);
       i++;
+      // 块体开头若单独成行地写了属性（kind=realm），先丢掉再收正文
+      while (i < lines.length && isBlockAttrLine(lines[i])) i++;
       while (i < lines.length && lines[i].trim() && !/^(::|<\/?\w)/.test(lines[i].trim())) {
         blockLines.push(lines[i].trim());
         i++;
@@ -402,24 +467,113 @@ function emitBlocks(src, out, onPickOption, keyBase) {
   }
 }
 
+// ===== 思维链拆分与思考栏 =====
+/**
+ * 从一段原始输出里拆出思维链，返回 { text, think }。
+ * 完整块（<think>…</think> / <thinking>…</thinking>）与未闭合的半截（流式截断、AI 漏写收尾）都算思考；
+ * 返回的 text 里保证不再含 think 标记。
+ *
+ * 两个调用方：本文件（渲染前兜底拆一次）与 GameDashboard 战后正文 —— 后者拆是为了让思考原文
+ * 既不落进存档的 text，也不会随最近剧情回流到下一轮的提示词里。
+ */
+export function splitThinkBlocks(src) {
+  const parts = [];
+  let rest = String(src || '').replace(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/gi, (m, inner) => {
+    const t = inner.trim();
+    if (t) parts.push(t);
+    return '';
+  });
+  // 剩下的开标记必然是没闭合的那个：它之后的内容全归思考，不再当正文
+  const at = rest.search(/<think(?:ing)?>/i);
+  if (at >= 0) {
+    const tail = rest.slice(at).replace(/^<think(?:ing)?>/i, '').trim();
+    if (tail) parts.push(tail);
+    rest = rest.slice(0, at);
+  }
+  rest = rest.replace(/<\/?think(?:ing)?>/gi, '');
+  return { text: rest, think: parts.join('\n\n') };
+}
+
+// 玩家对思考栏开合的本机偏好（不进 settings.json，跟字体偏好同一类）
+// 三态：'1' 一律展开 / '0' 一律收起 / 没存过 → 按当前是否在生成中决定
+const THINK_PREF_KEY = 'mortal-think-open';
+function readThinkPref() {
+  try {
+    const v = localStorage.getItem(THINK_PREF_KEY);
+    return v === null ? null : v === '1';
+  } catch { return null; }
+}
+
+/**
+ * 思考栏：AI 的思维链不给正文，折成一条细栏挂在正文上方，点开才铺开内容。
+ * 三条约定 ——
+ *   · 生成中默认展开（这一段正在长，玩家看得见进度），生成结束不自动收起（别把正在读的内容抽走）
+ *   · 玩家手动开合过之后，用本机偏好记住，之后每回合照此办理
+ *   · 展开体限高内滚，长思维链不会把正文顶出屏幕
+ */
+function ThinkBox({ text, streaming }) {
+  // 玩家存过偏好就照偏好来（收起过的新回合不再自动弹开）；没存过才按「生成中 → 展开」走
+  const [open, setOpen] = useState(() => {
+    const pref = readThinkPref();
+    return pref === null ? !!streaming : pref;
+  });
+  const touchedRef = useRef(false);            // 玩家自己动过开关，程序就不再插手
+  const wasStreamingRef = useRef(!!streaming);
+  useEffect(() => {
+    const now = !!streaming;
+    if (wasStreamingRef.current === now) return;
+    wasStreamingRef.current = now;
+    // 新一段思维链开始长，且玩家没有明确表态过 → 展开给他看。
+    // 收起由玩家自己决定，生成结束时不代劳（别把正在读的内容抽走）。
+    if (now && !touchedRef.current && readThinkPref() === null) setOpen(true);
+  }, [streaming]);
+
+  const toggle = () => {
+    touchedRef.current = true;
+    setOpen(prev => {
+      const next = !prev;
+      try { localStorage.setItem(THINK_PREF_KEY, next ? '1' : '0'); } catch { /* 存不了就只影响本次会话 */ }
+      return next;
+    });
+  };
+  const count = text.replace(/\s/g, '').length;
+
+  return (
+    <div className={`think-box${open ? ' open' : ''}${streaming ? ' live' : ''}`}>
+      <button type="button" className="think-head" onClick={toggle} aria-expanded={open}>
+        <span className="think-arrow" aria-hidden="true">▸</span>
+        <span className="think-label">思考过程</span>
+        <span className="think-meta">{streaming ? '生成中…' : `${count} 字`}</span>
+      </button>
+      {open && <div className="think-body">{text}</div>}
+    </div>
+  );
+}
+
 /**
  * 正文渲染主组件
  * @param {string} text AI 输出的原始正文（含语义标记与运行时标签）
+ * @param {string} [think] 本回合的思维链（流式阶段攒下来的那份，优先于 text 里捡到的）
+ * @param {boolean} [streaming] 是否仍在接收中（思考栏据此决定默认展开与「生成中…」字样）
  * @param {(optText: string) => void} onPickOption 选项点击回调（填入发送框）
  * @param {object} [palette] settings.textRules.colorPalette：正文着色词表
  *   mode='strict' 且词表非空时，词表外的 <font color> 一律不着色（回退默认字色）
  */
-export default function StoryRenderer({ text, onPickOption, palette }) {
+export default function StoryRenderer({ text, onPickOption, palette, think, streaming }) {
   const resolver = useMemo(() => makeColorResolver(palette), [palette]);
   const resolveColor = resolver.resolve;
   let src = String(text || '');
-  if (!src.trim()) return null;
+  // 正文还没到、思维链已经在长（流式刚开头就是 <thinking>）时也要出渲染器 —— 否则思考栏没地方挂
+  const propThink = typeof think === 'string' ? think.trim() : '';
+  if (!src.trim() && !propThink) return null;
 
-  // 预清理 0：丢掉「不给玩家看」的内部块 —— HTML 注释 <!-- … --> 与 <think>…</think>。
-  // 协议固定模板把「战斗推演」整段写成 <!-- 战斗推演: … -->，本意是不显示；但渲染器不认注释，
-  // 于是整段推演原文进了正文（实测）。更隐蔽的坑：注释里若写了 <card>/<log>，会被下面的抽取
-  // 当成**真卡片**渲染出来。另注意下面那行剥壳清单只删标签不删内容 —— 对 <content> 是对的
-  // （内容就是正文），对 <think> 是错的（思考会当正文漏出去），所以这里必须连内容一起丢。
+  // 预清理 0：内部块分两类。
+  //   ① HTML 注释 <!-- … -->：连内容一起丢。协议固定模板把「战斗推演」整段写成 <!-- 战斗推演: … -->，
+  //      本意是不显示；但渲染器不认注释，于是整段推演原文进了正文（实测）。更隐蔽的坑：注释里若写了
+  //      <card>/<log>，会被下面的抽取当成**真卡片**渲染出来。
+  //   ② <think>/<thinking>：内容不给正文，但也不丢 —— 拆出来交给思考栏（见 splitThinkBlocks 与 ThinkBox）。
+  //      下面那行剥壳清单只删标签不删内容：对 <content> 是对的（内容就是正文），对 <think> 是错的
+  //      （思考会当正文漏出去），所以 think 必须在这里就按块摘走。
   const dropInner = (re, openTag) => {
     src = src.replace(re, '');
     const at = src.lastIndexOf(openTag);
@@ -435,8 +589,8 @@ export default function StoryRenderer({ text, onPickOption, palette }) {
     }
   };
   dropInner(/<!--[\s\S]*?-->/g, '<!--');
-  dropInner(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '<think');
-  src = src.replace(/<\/?think(?:ing)?>/gi, ''); // 清理残留的单侧 think 标记
+  const embedded = splitThinkBlocks(src);
+  src = embedded.text;
 
   // 预清理 0.5：首遇建档块（阶段 1 的 <new_char>{完整快照}</new_char>）不给玩家看。
   // 正常路径已在流式接收时剥离（见 GameDashboard），这里兜住旧存档与漏剥的情况。
@@ -456,9 +610,20 @@ export default function StoryRenderer({ text, onPickOption, palette }) {
   //   (c) 开尖括号被写成语义标记前缀（实测）：`::scene_checkpoint …>`、`::log`
   //       —— 最隐蔽：`::scene` 会被 DSL 标记吃掉，剩下的 `_checkpoint …>` 当正文泄漏，
   //          而结尾的 `</scene_checkpoint>` 又会被下面的「清理残留闭标签」静默删掉。
+  //       `:::branches`（冒号写三个）同样命中这里：它不被任何块标记认领，整行原样漏成正文，
+  //       收尾的 `:::` 也漏一行（实测 2026-09-24 存档 4 条回合全中）。所以冒号数写 2~3 都算。
   src = src.replace(/<\s*(scene_checkpoint|ui_sys|cultivation_card|card|log|battle)\b/gi, '<$1');
-  src = src.replace(/(^|\s)::(\/?)(scene_checkpoint|ui_sys|cultivation_card|card|log|battle)\b/gi,
+  src = src.replace(/(^|\s):{2,3}(\/?)(scene_checkpoint|ui_sys|cultivation_card|card|log|battle)\b/gi,
     (m, pre, slash, name) => `${pre}<${slash}${name}`);
+  // branches 单独一条，**当场闭合**：它没有任何需要保留的行内属性，而下面那条「行内补 >」的规则
+  // 白名单里没有它（那条是给带 data-* 属性的锚点用的）。2026-09-24 第一版就栽在这里：
+  // 只把 `:::` 换成 `<branches` 而不闭合，`<branches` 反而成了新的一行明文泄漏
+  // （被行级 diff 抓出来，正文里出现了 4 处 `<branches`）。同一行后面的内容（模型偶尔把选项
+  // 跟标签写在一行）留在标签外面，闭合标签会被后面的「清理残留标签」整条删掉。
+  src = src.replace(/(^|\s):{2,3}(\/?)[ \t]*branches\b[ \t]*/gi, (m, pre, slash) => `${pre}<${slash}branches>`);
+  // 收尾的 `:::` / `::`（模型把 `</branches>` 写成三个冒号，独占一行）—— 整行丢掉。
+  // 行内只剩冒号的行不可能是任何合法标记（标记后面必有关键词），所以这条不会误伤正文。
+  src = src.replace(/(^|\n)[ \t]*:{2,3}[ \t]*(?=\r?\n|$)/g, '$1');
   // 上一种误写通常连收尾的 '>' 也没写（实测 `::log⏎<lm>…`）——行内找不到 '>' 就补一个，
   // 否则整块既匹配不到标签、又会把开头的 `<log` 与后面的 `</log>` 一起当正文漏出去。
   src = src.replace(/<(scene_checkpoint|ui_sys|cultivation_card|card|log|battle)\b([^\n>]*)(\n|$)/gi,
@@ -523,5 +688,13 @@ export default function StoryRenderer({ text, onPickOption, palette }) {
     }
   }
 
-  return <div className="story-rendered">{out}</div>;
+  // 思维链：流式攒下来的那份优先（主路径），没有就用在正文里捡到的（战后正文 / 旧存档漏网）
+  const thinkText = propThink || embedded.think;
+
+  return (
+    <div className="story-rendered">
+      {thinkText ? <ThinkBox text={thinkText} streaming={!!streaming} /> : null}
+      {out}
+    </div>
+  );
 }

@@ -2,45 +2,44 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { computeAttrs, rootDisplayName, ROOT_CULTIVATE_RATE } from '../data/gameData.js';
 import {
   migrateSave, buildSnapshotPayload, snapshotSummaryText, applyAIState,
-  buildCharSnapshotBundle, applyEvolvedSnapshots, applyEvolutionV2, persistCharSnapshots, applySnapshotPayload,
+  buildCharSnapshotBundle, applyEvolutionV2, persistCharSnapshots, applySnapshotPayload,
   ingestNewCharBlocks, carryPlayerOwnedFields,
 } from '../saveModel.js';
 import { extractStoryTime, parseWorldTime, applyWorldTime } from '../engine/worldTime.js';
-import { openingNarrative, turnNarrative, quickActionNarrative, buildAIPrompt } from '../engine/narrative.js';
+import { openingNarrative, turnNarrative, buildAIPrompt } from '../engine/narrative.js';
+import { applyCultivationCards } from '../engine/cultivationSettle.js';
 import { parseStateBlock, assembleStoryPrompt } from '../engine/promptSystem.js';
-import { assembleEvolutionPrompt, assembleEvolutionPromptV2, isV2Preset } from '../engine/evolutionPrompt.js';
-import { validateEvolutionResult, snapshotFromCharacter, attrRows, attrBonusHint, characterAttrMods } from '../data/snapshotSchema.js';
+import { assembleEvolutionPromptV2 } from '../engine/evolutionPrompt.js';
+import { snapshotFromCharacter, attrRows, attrRowView, attrBonusHint, characterAttrMods } from '../data/snapshotSchema.js';
 import { stripNewCharBlocks } from '../data/snapshotV2.js';
 import { parseBattleBlock, stripBattleBlocks, buildBattleFromSpec, describeBattleSetup, battleNarrativeMessages, applyBattleOutcome } from '../data/battleTrigger.js';
 import { createBattle } from '../data/battleEngine.js';
 import BattleView from './BattleView.jsx';
+import BattleSetupModal from './BattleSetupModal.jsx';
 import { api } from '../api.js';
-import StoryRenderer from '../components/StoryRenderer.jsx';
+import StoryRenderer, { splitThinkBlocks, stripOptions } from '../components/StoryRenderer.jsx';
 import { EvolutionPage, SavesManagerPage, FactorsPage, WorldBookPage } from './GamePages.jsx';
-import { SnapshotsPage, AssistantPage, MapPage } from './ExtraPages.jsx';
+import { MapPage } from './ExtraPages.jsx';
 import NumericPage from './NumericPage.jsx';
 import ConstraintsPage from './ConstraintsPage.jsx';
-import CharacterPanel from './CharacterPanel.jsx';
+import CharacterPanel, { CultRateRow } from './CharacterPanel.jsx';
 import SettingsPage from './SettingsPage.jsx';
 import { storyEndpointOf, snapshotEndpointOf } from '../data/apiEndpoints.js';
 import { PLOT_STYLES } from '../saveModel.js';
 import { useToast, Spinner } from '../ui.jsx';
 import { readTheme, applyTheme, THEMES } from '../theme.js';
-import { storyWordQuotaText, VIEWPOINT_CONTRACT } from '../prompts/contracts.js';
+import { storyWordQuotaText, actionPriorityText } from '../prompts/contracts.js';
 import { memoryCompressorText, phaseSummarizerText } from '../prompts/assistant.js';
+import { findBioCompressTargets, bioCompressMessages, compressedBio, bioLines } from '../engine/bioCompress.js';
 
 const PLOT_STYLE_NAMES = (save) => PLOT_STYLES.filter(s => save.plot?.styles?.[s.id]?.selected).map(s => s.name);
 
-const QUICK = ['静观其变', '顺势而为', '时光流转'];
-
-// 检测演化预设是否为 concurrent 结构（决定服务端用宽松校验）
-function isConcurrentPreset(rules) {
-  return !!(rules && typeof rules === 'object'
-    && (rules.sharedRules || rules.itemSharedRules || (rules.prompts && typeof rules.prompts === 'object' && !Array.isArray(rules.prompts))));
-}
-
-// 左侧导航：图标用「单字」而不是 emoji —— 鬼谷八荒那一套是墨线小印，
-// 彩色 emoji 混在鎏金深底上是最出戏的一块。单字用楷体，配合下方 .nav-icon 的小金框。
+// 左侧导航：每片竹简配一枚「单字」（不是 emoji —— 彩色 emoji 混在鎏金深底上最出戏，
+// 鬼谷八荒那一套是墨线小印）。字放在 .nav-icon 的小框里。
+// ⚠ 这枚字**只在窄窗显示**：窗口 >900px 时牌面上只留 name，字由 guigu.css 的
+//    `@media (min-width: 901px) .game-nav .nav-icon { display: none }` 藏起来；
+//    ≤900px 时 .nav-label 会被 theme.css 隐藏、栏宽收到 56px，全靠这枚字认路。
+//    所以 icon 字段不能从数据里删 —— 删了窄窗就是十块空白竹片。
 const NAV_ITEMS = [
   { id: 'story', name: '故事', icon: '事' },
   { id: 'evolution', name: '剧情演化', icon: '演' },
@@ -48,8 +47,6 @@ const NAV_ITEMS = [
   { id: 'factors', name: '世界因子', icon: '因' },
   { id: 'worldbook', name: '世界书', icon: '典' },
   { id: 'characters', name: '查看人物', icon: '人' },
-  { id: 'assistant', name: '天道助手', icon: '道' },
-  { id: 'snapshots', name: '快照', icon: '快' },
   { id: 'map', name: '地图', icon: '图' },
   { id: 'numeric', name: '数值表', icon: '数' },
   { id: 'constraints', name: '其它约束', icon: '约' },
@@ -60,7 +57,7 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
   const save = migrateSave(rawSave); // 补齐缺失字段 + 自愈脏数据
   const [page, setPage] = useState('story'); // story|evolution|saves|factors|worldbook|assistant|snapshots|map|numeric|settings
   const [showChars, setShowChars] = useState(false); // 角色滑出面板
-  const [theme, setTheme] = useState(readTheme); // 'dark' 玄墨 / 'light' 宣纸
+  const [theme, setTheme] = useState(readTheme); // 'dark' 浓墨（深青）/ 'light' 淡墨（宣纸）
   const [settings, setSettings] = useState(null);
   const [savesRefresh, setSavesRefresh] = useState(0);
   const [story, setStory] = useState(() => save.story?.length ? save.story : [{ turn: 0, role: 'tiandao', text: openingNarrative(save), timeLabel: save.world.timeLabel }]);
@@ -68,7 +65,6 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState(''); // '' | 'story' | 'evolve'
   const [saved, setSaved] = useState(true);
-  const [autoTurn, setAutoTurn] = useState(false);
   const [fontSize, setFontSize] = useState(15.5);
   const [lineHeight, setLineHeight] = useState(1.95); // 正文行距（设置页「显示与字体」可调）
   // 字数规范（「自动下回合」右侧可编辑，自动注入提示词）
@@ -77,16 +73,19 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
   const scrollRef = useRef(null);
   const abortRef = useRef(null); // 当前回合的中止控制器（停止按钮用）
   const pendingRegen = useRef(null); // 待重生成回合的用户输入（右键「重新生成」）
+  const bioCompressInflight = useRef(new Set()); // 生平压缩进行中的快照 id（响应回来前不重发）
   // 最新内存存档的镜像：一个回合要跑几十秒，期间玩家可能去管理页改「剧情方向与风格」。
   // 那些字段由玩家自持（见 saveModel.PLAYER_OWNED_PATHS），落盘时必须取这一刻的最新副本，
   // 否则回合结束时整份写回，玩家在这段时间里的改动会被冲掉。
-  // （世界书以前也在这张清单里，改成跨存档公用文件后已不在存档里，自然免疫。）
   const latestSaveRef = useRef(save);
+  const storyRef = useRef(story);   // 同款：refreshTurnCheckpoint 里要读"此刻"的正文块列表
   const [ctxMenu, setCtxMenu] = useState(null); // 回合右键菜单 { x, y, index }
   const [editing, setEditing] = useState(null); // 正在编辑的玩家发言 { index, text }
+  const [editingAi, setEditingAi] = useState(null); // 正在编辑的 AI 回复正文 { index, text }
   const [queuedResend, setQueuedResend] = useState(null); // 生成中排队的「编辑后重新发送」{ index, text }
   // 战斗接管：{ setup, note, errors, warnings, collapsed } —— 非空即表示有一场待打/正在打的战斗
   const [battle, setBattle] = useState(null);
+  const [battleSetupOpen, setBattleSetupOpen] = useState(false); // 「⚔ 开战」的选人弹窗
   const toast = useToast();
 
   // ESC 关闭抽屉
@@ -97,7 +96,7 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
   }, []);
 
   const mode = settings?.mode || 'local';
-  // 世界时间由 AI 自主规划（已取消「每回合推进 N 小时」的固定机制）——见 engine/worldTime.js
+  // 世界时间由 AI 自主规划 —— 见 engine/worldTime.js
 
   const settingsRef = useRef(null); // 当前已加载的设置（用于新旧比对）
   useEffect(() => {
@@ -117,6 +116,7 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   // 每次渲染后刷新「最新存档」镜像（剧情方向与风格等玩家自持字段以它为准）
   useEffect(() => { latestSaveRef.current = save; }, [save]);
+  useEffect(() => { storyRef.current = story; }, [story]);
 
   // 字数规范变更：防抖 800ms 自动保存到服务端 settings.textRules
   useEffect(() => {
@@ -173,7 +173,9 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
     return saved;
   }, []);
 
-  const persist = useCallback(async (newStory, newSave) => {
+  // opts.rollbackMemories：只有回退到某回合 / 重新生成 / 重新发送才传。
+  // 记忆是回合结束后异步追加进磁盘的，普通落盘交上来的那份是旧的；不声明就由服务端沿用磁盘上的记忆。
+  const persist = useCallback(async (newStory, newSave, opts) => {
     // 玩家自持字段（剧情方向与风格）取「这一刻的最新副本」，不跟着本回合开跑时的旧副本回滚：
     // 回合从开跑到落盘隔了几十秒，玩家常在这段时间里改方向，整份写回会把那次改动冲掉。
     const s = carryPlayerOwnedFields(
@@ -185,9 +187,38 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
     // 与 mortalProtocols 的「耗时怎么算」段），数字由 AI 本轮现算并写进卡片。
     updateSave(s);
     setSaved(false);
-    try { await saveNow(s); setSaved(true); } catch { setSaved(false); }
+    try { await saveNow(s, opts); setSaved(true); } catch { setSaved(false); }
     return s;
   }, [updateSave, saveNow, settings]);
+
+  // ===== 手改快照后，刷新「当前这一回合」的存档点（2026-09-24 用户选「甲」）=====
+  // 为什么需要：右键「回退到第 N 回合结束」是把那一回合的 payload **整份盖回来**
+  //   （applySnapshotPayload：世界 / 物品 / 角色快照一起回滚）。
+  //   而 payload 是那一回合**生成结束时**冻结的。你在第 A 回合结束之后、进下一回合之前
+  //   去角色名册手改了快照 —— 那份 payload 里自然没有这次改动，一按回退就被抹掉，
+  //   看上去像"改了不生效"。
+  // 甲方案：手改的当下，顺手把「最近一条带 payload 的 ai 块」重算一遍。
+  //   ⇒ 回退到这一回合，改动还在；回退到更早的回合，它仍会跟着退掉
+  //     （"存档点就是那一刻的样子"这个语义不变）。
+  const refreshTurnCheckpoint = useCallback(async (charId, snapObj) => {
+    const base = latestSaveRef.current || save;
+    const nextSave = { ...base, charSnapshots: { ...(base.charSnapshots || {}), [charId]: snapObj } };
+    latestSaveRef.current = nextSave;                 // 连续改两个人也拿得到最新副本
+    const cur = storyRef.current || [];
+    // ⚠ 不能用 `cur.map(b => b?.role === 'ai' && b.payload).lastIndexOf(true)`：
+    //   表达式为真时返回的是 payload **对象**，而 lastIndexOf 是严格相等，对象 ≠ true，
+    //   于是永远返回 -1、这里直接早退、存档点从没被刷新过（2026-09-24 实测踩到）。
+    let idx = -1;
+    for (let i = cur.length - 1; i >= 0; i--) {
+      if (cur[i]?.role === 'ai' && cur[i].payload) { idx = i; break; }
+    }
+    if (idx < 0) return nextSave;                     // 还没打过回合（没有存档点可刷）
+    const nextStory = [...cur];
+    nextStory[idx] = { ...nextStory[idx], payload: buildSnapshotPayload(nextSave) };
+    setStory(nextStory);
+    await persist(nextStory, nextSave);               // 落盘：刷新页面后再回退才拿得到新存档点
+    return nextSave;
+  }, [save, persist]);
 
   const doTurn = useCallback(async (actionText) => {
     if (busy) return;
@@ -225,7 +256,9 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
         const ac = new AbortController();
         abortRef.current = ac;
         // ===== Stage 1：正文生成（流式） =====
-        const history = story.slice(-4).map(b => `${b.role === 'user' ? '【玩家】' : '【旁白】'}${b.text}`).join('\n\n');
+        // 历史正文剥掉 AI 结尾自拟的推进选项：选项清单回流提示词会把模型牵着走，
+        // 玩家下了别的指令却顺着选项 1 写（2026-09-29 冥寒仙府回合实测）。
+        const history = story.slice(-4).map(b => `${b.role === 'user' ? '【玩家】' : '【旁白】'}${stripOptions(b.text)}`).join('\n\n');
         // 字数规范实时注入（「自动下回合」右侧控件可改，无需进设置页）
         const effSettings = { ...settings, textRules: { ...(settings?.textRules || {}), minWords: wordRange.min, maxWords: wordRange.max } };
         const storyMessages = assembleStoryPrompt(effSettings, current, actionText, history);
@@ -234,27 +267,29 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
         // 经验：给"区间"模型会贴下限写，故锚定区间上半段并给出明确目标字数
         const targetWords = Math.max(wordRange.min, Math.round(wordRange.max * 0.9));
         const floorWords = Math.max(wordRange.min, Math.round((wordRange.min + wordRange.max) / 2));
+        // 行动指令强化：把玩家本轮输入在最末尾再钉一遍（专治无视指令顺着旧场景写）
         storyMessages.push({
           role: 'system',
-          content: storyWordQuotaText({ targetWords, floorWords, wordRange }),
-        });
-        // 视点硬约束：整条请求的最后一条消息（服从度最高）。
-        // 预设的「写作风格」段常要求"大量内心独白、直接给出"，那是第三人称小说的写法；
-        // 在第二人称下会变成替玩家表态（"你发现自己并不害怕杀人"）。这里再钉一遍，防预设压过。
-        storyMessages.push({
-          role: 'system',
-          content: VIEWPOINT_CONTRACT,
+          content: [
+            storyWordQuotaText({ targetWords, floorWords, wordRange }),
+            actionPriorityText(actionText),
+          ].filter(Boolean).join('\n\n'),
         });
 
-        // 流式接收，边收边显示，过滤思维链
+        // 流式接收，边收边显示，正文与思维链分流
+        // 思维链不走正文，但也不丢：攒在 thinkingBuf 里，逐字写进本回合的 think 字段，
+        // 由 StoryRenderer 渲染成一个折叠的思考栏（2026-09-29 起玩家可展开查看）。
         let fullText = '';
         let displayBuf = '';   // 过滤 <thinking>/<state> 之后的原始串（可能还含首遇建档块）
         let displayText = '';  // 真正上屏的正文（建档块已摘掉）
         let inThinking = false;
         let thinkingBuf = '';
+        // 走原始全文兜底时先把思维链摘干净：displayText 那条路已经滤过 think，fullText 没有。
+        // 不摘的话，思维链原文会既落到屏幕上、又跟着存档回到下一轮的提示词里。
+        const noThink = s => splitThinkBlocks(s).text;
         // 先 push 一个空的 ai 块占位，后续追加
         const aiTurn = newStory.length;
-        newStory = [...newStory, { turn: aiTurn, role: 'ai', text: '', timeLabel: current.world.timeLabel, streaming: true }];
+        newStory = [...newStory, { turn: aiTurn, role: 'ai', text: '', think: '', timeLabel: current.world.timeLabel, streaming: true }];
         setStory(newStory);
 
         try {
@@ -262,29 +297,33 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
             if (chunk.type === 'delta') {
               const delta = chunk.text || '';
               fullText += delta;
-              // 过滤 <thinking>...</thinking>（不显示给用户）
-              // 处理跨 chunk 的标签
+              // 过滤思维链标签（<thinking>…</thinking> 与 <think>…</think> 两种都认，不显示给用户）
+              // 处理跨 chunk 的标签：找剩余文本里最早出现的开/闭标签，逐段搬进 displayBuf / thinkingBuf
               let remaining = delta;
+              const OPEN_THINK = ['<thinking>', '<think>'];
+              const CLOSE_THINK = ['</thinking>', '</think>'];
+              const earliest = (tags, s) => {
+                let best = null, at = Infinity;
+                for (const t of tags) { const i = s.indexOf(t); if (i >= 0 && i < at) { best = t; at = i; } }
+                return best ? { tag: best, at } : null;
+              };
               while (remaining) {
-                if (inThinking) {
-                  // 在思维链内，找结束标签
-                  const idx = remaining.indexOf('</thinking>');
-                  if (idx >= 0) {
-                    thinkingBuf += remaining.slice(0, idx);
+                const hit = earliest(inThinking ? CLOSE_THINK : OPEN_THINK, remaining);
+                if (hit) {
+                  if (inThinking) {
+                    thinkingBuf += remaining.slice(0, hit.at);
                     inThinking = false;
-                    remaining = remaining.slice(idx + '</thinking>'.length);
                   } else {
-                    thinkingBuf += remaining;
-                    remaining = '';
-                  }
-                } else {
-                  // 在正文内，找开始标签
-                  const idx = remaining.indexOf('<thinking>');
-                  if (idx >= 0) {
-                    displayBuf += remaining.slice(0, idx);
+                    displayBuf += remaining.slice(0, hit.at);
                     inThinking = true;
                     thinkingBuf = '';
-                    remaining = remaining.slice(idx + '<thinking>'.length);
+                  }
+                  remaining = remaining.slice(hit.at + hit.tag.length);
+                } else {
+                  // 剩余里没有思维链标签了
+                  if (inThinking) {
+                    thinkingBuf += remaining;
+                    remaining = '';
                   } else {
                     // 也过滤 <state>、<upstore> 标签内容（演化阶段才用，正文不显示）
                     const stateIdx = remaining.indexOf('<state>');
@@ -300,15 +339,21 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
               }
               // 首遇建档块（<new_char>…</new_char>）与战斗接管指令（<battle>…</battle>）都不给玩家看
               displayText = stripBattleBlocks(stripNewCharBlocks(displayBuf));
-              // 实时更新 story
+              // 实时更新 story（think 同步写入，思考栏才能边生成边长）
               newStory = [...newStory];
-              newStory[aiTurn] = { ...newStory[aiTurn], text: displayText, streaming: true };
+              newStory[aiTurn] = { ...newStory[aiTurn], text: displayText, think: thinkingBuf, streaming: true };
               setStory(newStory);
             } else if (chunk.type === 'reset') {
               // 服务端提升输出预算重新生成：丢弃半截正文，从零接收新输出
               fullText = ''; displayBuf = ''; displayText = ''; inThinking = false; thinkingBuf = '';
               newStory = [...newStory];
-              newStory[aiTurn] = { ...newStory[aiTurn], text: '', streaming: true };
+              newStory[aiTurn] = { ...newStory[aiTurn], text: '', think: '', streaming: true };
+              setStory(newStory);
+            } else if (chunk.type === 'reason') {
+              // 推理模型的思维链走独立字段（服务端从 reasoning_content 摘出）：只进思考栏，不进正文
+              thinkingBuf += (chunk.text || '');
+              newStory = [...newStory];
+              newStory[aiTurn] = { ...newStory[aiTurn], think: thinkingBuf, streaming: true };
               setStory(newStory);
             } else if (chunk.type === 'info') {
               toast('warn', chunk.text || '');
@@ -316,7 +361,7 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
               throw new Error(chunk.error);
             }
           }
-          text = displayText.trim() || stripBattleBlocks(stripNewCharBlocks(fullText)).trim() || 'AI 未返回内容';
+          text = displayText.trim() || noThink(stripBattleBlocks(stripNewCharBlocks(fullText))).trim() || 'AI 未返回内容';
           // 去掉尾部可能的 <state>/<upstore> 残留
           text = text.replace(/<state>[\s\S]*$/i, '').replace(/<upstore>[\s\S]*$/i, '').trim() || text;
           // 战斗接管：正文里若带了 <battle> 指令，先摘出来，等阶段 2 把快照演化完再开战
@@ -326,12 +371,12 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
         } catch (e) {
           if (ac.signal.aborted || e.name === 'AbortError') {
             aborted = true;
-            text = displayText.trim() || stripNewCharBlocks(fullText).trim() || '已停止，本轮未生成正文';
+            text = displayText.trim() || noThink(stripNewCharBlocks(fullText)).trim() || '已停止，本轮未生成正文';
           } else {
             storyFailed = true;
             // 已经流下来的半段正文**不能丢**：中断时玩家最需要看到的就是它。
             // （此前这里直接把全文替换成一行错误文案，已生成的几百上千字全没了）
-            const partial = stripBattleBlocks(displayText.trim() || stripNewCharBlocks(fullText).trim());
+            const partial = stripBattleBlocks(displayText.trim() || noThink(stripNewCharBlocks(fullText)).trim());
             text = partial
               ? `${partial}\n\n（生成中断：${e.message}）`
               : 'AI 生成失败：' + e.message;
@@ -340,8 +385,13 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
         // 正文完成，移除 streaming 标记
         // 原始全文交给块外的战斗建局用（成功 / 中断 / 失败三条路都经过这里，故在此统一带走）
         rawFullText = fullText;
+        // 思维链收尾：空串不留字段（存档里不必堆 think:''）。
+        // 兜底：开闭标签恰被 chunk 边界切开时流式解析会漏接，从原始全文再拆一遍补齐
+        const finalThink = thinkingBuf.trim() || splitThinkBlocks(fullText).think.trim();
         newStory = [...newStory];
-        newStory[aiTurn] = { ...newStory[aiTurn], text, streaming: false };
+        newStory[aiTurn] = finalThink
+          ? { ...newStory[aiTurn], text, think: finalThink, streaming: false }
+          : { ...newStory[aiTurn], text, think: undefined, streaming: false };
         setStory(newStory);
 
         // ===== Stage 2：快照演化（正文失败/用户停止则跳过——演化没有可用正文，跑了也是浪费） =====
@@ -387,8 +437,7 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
           // 那批条目约 9 万字符，全部落在前缀缓存的分歧点之后（每回合冷重算），
           // 对快照结算贡献极小，属纯开销。正文阶段照常注入世界书。
           const worldInfo = `时间 ${current.world?.timeLabel} · 地点 ${current.world?.location?.name} · 因子 ${(current.world?.factors || []).map(f => f.name).join('、')}`;
-          // v2 预设：只让 AI 写「修改语句」+ 新角色的完整快照（服务端逐行校验，不合格打回重写）
-          const v2Mode = isV2Preset(evolutionRules);
+          // 演化只有 v2 一条路：只让 AI 写「修改语句」+ 新角色的完整快照（服务端逐行校验，不合格打回重写）
           const knownIds = Object.keys(currentBundle);
           // 各角色储物袋现状（物品名）—— 服务端用它校验「装备的物品必须先登记进储物袋」，
           // 否则装备槽只能凑出 { name }，品阶/类型/描述全空（面板上就是「物品不完整」）。
@@ -398,14 +447,11 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
               .map(it => (typeof it === 'string' ? it : (it?.name || it?.id || '')))
               .filter(Boolean);
           }
-          const evolveMessages = v2Mode
-            ? assembleEvolutionPromptV2({ storyText: text, userInput: actionText || '', snapshots: currentBundle, evolutionRules, worldInfo, knownIds, tuning: settings?.numericTuning })
-            : assembleEvolutionPrompt({ storyText: text, userInput: actionText || '', snapshots: currentBundle, evolutionRules, worldInfo, tuning: settings?.numericTuning });
+          const evolveMessages = assembleEvolutionPromptV2({ storyText: text, userInput: actionText || '', snapshots: currentBundle, evolutionRules, worldInfo, knownIds, tuning: settings?.numericTuning });
           const r2 = await api.aiEvolve(
             evolveMessages,
-            isConcurrentPreset(evolutionRules) ? 'concurrent' : undefined,
             ac.signal,
-            v2Mode ? { mode: 'v2', knownIds, ownedItems } : undefined,
+            { mode: 'v2', knownIds, ownedItems },
           );
           if (r2?.ok && r2.result?.format === 'v2') {
             const res = r2.result;
@@ -431,46 +477,9 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
             const touched = new Set([...Object.keys(res.init || {}), ...((res.edits || []).map(e => e.id))]);
             for (const id of touched) persistBundle[id] = nextSave.charSnapshots?.[id];
             persistCharSnapshots(current.id, persistBundle);
-          } else if (r2?.ok && r2.result?.snapshots) {
-            const v = validateEvolutionResult(r2.result);
-            // 演化阶段同时报出「本轮结束时的世界时间」——正文里解析不到时用它兜底
-            evolveWorldTime = v.parsed?.worldTime || r2.result.worldTime || '';
-            if (v.ok || Object.keys(v.parsed?.snapshots || {}).length) {
-              const rawSnaps = v.parsed?.snapshots || r2.result.snapshots;
-              const deeds = r2.result.deeds || [];
-              // applyEvolvedSnapshots 内部做深度合并：AI 精简输出只覆盖给出的字段，
-              // 既有 bio/equipment/inventory/skills 等丰富字段自动保留；
-              // 合并后按数值规则表强制校界（越界属性写回边界，「数值表」页可关闭）
-              nextSave = applyEvolvedSnapshots(baseSave, rawSnaps, deeds, {
-                tuning: settings?.numericTuning,
-                onClamp: ch => toast('warn', `数值校界：${ch.length} 处越界属性已按数值表强制修正`),
-                // 剧情指令回写报告：把本轮 AI 写的结构化更新落进快照后的结果
-                onCommands: ({ report, droppedRefs }) => {
-                  const ids = Object.keys(report || {});
-                  const applied = ids.reduce((n, id) => n + (report[id]?.applied?.length || 0), 0);
-                  const missed = ids.flatMap(id => (report[id]?.skipped || []));
-                  if (applied) toast('ok', `剧情更新已写入存档：${applied} 处 · ${ids.length} 名角色`);
-                  if (missed.length) {
-                    const head = missed.slice(0, 2).join('；');
-                    toast('warn', `${missed.length} 条更新没能生效：${head}${missed.length > 2 ? ` 等共 ${missed.length} 条` : ''}`);
-                  }
-                  if (droppedRefs?.length) toast('warn', `有 ${droppedRefs.length} 个装备栏的物品名无法识别，已清空该栏`);
-                  if (applied || missed.length || droppedRefs?.length) {
-                    try { console.debug('[剧情指令]', report, droppedRefs); } catch { /* 忽略 */ }
-                  }
-                },
-              });
-              // 持久化合并后的完整快照（而非 AI 返回的精简版）
-              const persistBundle = {};
-              for (const id of Object.keys(rawSnaps)) persistBundle[id] = nextSave.charSnapshots?.[id];
-              persistCharSnapshots(current.id, persistBundle);
-              toast('ok', `快照已演化：${Object.keys(rawSnaps).length} 名角色${deeds.length ? ` · ${deeds.length} 条事迹` : ''}`);
-            } else {
-              toast('warn', '演化结果校验失败，未应用：' + (v.errors[0]?.msg || '未知'));
-            }
           } else {
-            // ok 但两种结果结构都没命中：AI 回了 200 却没给可用快照。
-            // 这里以前什么都不做 —— 正文照常显示，玩家会以为属性也更新了，其实还是上一轮的值。
+            // ok 但没拿到 v2 信封：AI 回了 200 却没给可用的修改语句。
+            // 不提示的话，正文照常显示，玩家会以为属性也更新了，其实还是上一轮的值。
             toast('warn', '本轮属性未更新：AI 没返回可用的快照内容（存档仍是上一轮的值，正文已保存）');
           }
         } catch (e) {
@@ -499,8 +508,25 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
         setStory(newStory);
       }
 
+      // ===== 修炼结算卡落盘 =====
+      // AI 每轮现算的 <cultivation_card> 此前只渲染、不写盘，进度永远停在 0。
+      // 必须放在演化之后：这里写的是「本轮结束时的最终值」，不能被演化结果盖掉。
+      if (!aborted && !storyFailed) {
+        try {
+          const settle = applyCultivationCards(nextSave, rawFullText || text);
+          if (settle.applied.length) {
+            const bundle = {};
+            for (const id of settle.touched) bundle[id] = nextSave.charSnapshots?.[id];
+            persistCharSnapshots(current.id, bundle);
+            toast('ok', `修为已入档：${settle.applied.join('；')}`);
+          }
+        } catch (e) {
+          toast('warn', `修为结算未写入（正文与其它数据不受影响）：${e?.message || e}`);
+        }
+      }
+
       // ===== 世界时间：交回 AI 自主规划 =====
-      // 已取消「每回合固定推进 N 小时」。优先级：正文里最后一个 <scene_checkpoint data-time>
+      // 优先级：正文里最后一个 <scene_checkpoint data-time>
       // → 正文开头 <ui_sys> 的时间 → 演化阶段报出的 worldTime（字符串，需再解析一次）；
       // 都没有则时间保持不变（不猜）。
       const aiTime = extractStoryTime(text) || parseWorldTime(evolveWorldTime);
@@ -609,6 +635,36 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
         }
       }
 
+      // ===== 生平自动压缩：快照 bio.lifeStory 非空条目超过 20 条时，后台压成 150 字摘要并替换原文 =====
+      // 与叙事记忆压缩同款式：异步不阻塞、失败静默。落盘必须整份写回存档文档——
+      // POST /api/saves 是全量覆盖，只写 char_snaps 副本的话，下一回合会把长文带回、每回合反复触发。
+      // 记忆不用担心被这份整份写回冲掉：服务端对 memories 一律沿用磁盘（见 server/index.js）。
+      // 开关与阈值：settings.bioCompress.enabled / settings.bioCompress.maxLines（默认开 / 20）。
+      if (settings?.bioCompress?.enabled !== false) {
+        const maxLines = Number(settings?.bioCompress?.maxLines) || 20;
+        for (const id of findBioCompressTargets(persisted, maxLines)) {
+          if (bioCompressInflight.current.has(id)) continue;
+          const snap = persisted.charSnapshots[id];
+          const lineCount = bioLines(snap).length;
+          bioCompressInflight.current.add(id);
+          api.aiGenerate(bioCompressMessages(snap)).then((r) => {
+            // 以 latestSaveRef（客户端最新副本）为底做读改写；本回合刚 persist 完，两者一致
+            const base = latestSaveRef.current || persisted;
+            const cur = base.charSnapshots?.[id];
+            if (!cur || bioLines(cur).length <= maxLines) return; // 期间被回退或已压过：放弃
+            const bio = compressedBio(cur, r?.text);
+            if (!bio) return;
+            const next = { ...cur, bio };
+            const merged = { ...base, charSnapshots: { ...(base.charSnapshots || {}), [id]: next } };
+            latestSaveRef.current = merged;
+            updateSave(merged);                             // 本地状态同步：界面立刻看到压缩后的生平
+            api.saveGame(merged).catch(() => {});           // 存档文档整份写回（memories 由服务端沿用磁盘）
+            persistCharSnapshots(save.id, { [id]: next });  // char_snaps 独立副本同口径
+            toast('ok', `生平已自动压缩：${snap.identity?.name || id}（${lineCount} 条 → 摘要）`);
+          }).catch(() => {}).finally(() => bioCompressInflight.current.delete(id));
+        }
+      }
+
       const every = Number(settings?.story?.autoSnapshotEvery) || 0;
       const newCount = persisted.turnCount || 0;
       if (every > 0 && newCount > 0 && newCount % every === 0) {
@@ -657,6 +713,7 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
     newStory.push({ turn: aiTurn, role: 'ai', text: '', timeLabel: nextSave.world?.timeLabel, streaming: true });
     setStory(newStory);
     let text = '';
+    let battleThink = '';   // 战后这一轮的思维链（若有），同样交给思考栏
     try {
       // 战后这一次请求与平时那一回合**同一套口径**：协议（含数值约束）取自设置页，
       // 字数取「自动下回合」右侧那个控件的当前值，末尾再补篇幅/视点两条硬约束。
@@ -669,8 +726,10 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
       for await (const chunk of api.aiStoryStream(messages, ac.signal)) {
         if (chunk.type === 'delta') {
           full += chunk.text || '';
+          // 与普通回合同口径：思维链拆出来单独放，正文里不留（拆一次两份都用同一套规则）
+          const split = splitThinkBlocks(full);
           newStory = [...newStory];
-          newStory[aiTurn] = { ...newStory[aiTurn], text: full, streaming: true };
+          newStory[aiTurn] = { ...newStory[aiTurn], text: split.text, think: split.think, streaming: true };
           setStory(newStory);
         } else if (chunk.type === 'reset') {
           // 与普通回合同口径：服务端提升输出预算重新生成，丢弃半截正文从零接收
@@ -678,7 +737,7 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
           //   重试产出的内容会拼在上一段半截正文后面，变成一个双头段落。）
           full = '';
           newStory = [...newStory];
-          newStory[aiTurn] = { ...newStory[aiTurn], text: '', streaming: true };
+          newStory[aiTurn] = { ...newStory[aiTurn], text: '', think: '', streaming: true };
           setStory(newStory);
         } else if (chunk.type === 'info') {
           // 与普通回合同口径：把服务端的等待/重试说明显示出来。
@@ -689,7 +748,9 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
           throw new Error(chunk.error);
         }
       }
-      text = full.trim();
+      const split = splitThinkBlocks(full);
+      text = split.text.trim();
+      battleThink = split.think;
     } catch (e) {
       text = `（战斗正文生成失败：${e.message}）`;
     }
@@ -698,6 +759,7 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
     newStory = [...newStory];
     newStory[aiTurn] = {
       turn: aiTurn, role: 'ai', text, streaming: false,
+      think: battleThink || undefined,
       battleLog: outcome.logText, timeLabel: nextSave.world?.timeLabel,
       payload: buildSnapshotPayload(nextSave),
     };
@@ -714,12 +776,50 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
     }
   }, [battle, save, story, settings, wordRange, persist, toast]);
 
-  // 自动下回合
-  useEffect(() => {
-    if (!autoTurn || busy || page !== 'story') return;
-    const t = setTimeout(() => doTurn(''), 1200);
-    return () => clearTimeout(t);
-  }, [autoTurn, busy, story, page, doTurn]);
+  // ===== 手动开战：玩家点「⚔ 开战」自己挑人，不必等 AI 在正文里写 <battle> 指令 =====
+  // 与「正文里带 <battle>」那条路走的是同一套建局与落盘：同一个 buildBattleFromSpec、
+  // 同样把校界修正后的快照写回、同样把 setup 交给 BattleView。
+  // 唯一的区别是参战名单来自玩家点选。
+  const startManualBattle = useCallback(async (spec) => {
+    if (busy) { toast('warn', '正文生成中，等这一轮结束再开战'); return; }
+    if (battle) { toast('warn', '已有一场战斗在进行中，先打完并结算'); return; }
+    // 「补地图」与「战斗本身」必须共用一个 seed（与 AI 开战那条路同一口径）
+    const battleSeed = Math.floor(Math.random() * 1e9);
+    const built = buildBattleFromSpec(save, spec, {
+      tuning: settings?.numericTuning,
+      floorHpPercent: settings?.battle?.floorHpPercent,
+      seed: battleSeed,
+    });
+    if (!built.ok) { toast('err', `战斗未能开始：${built.errors[0] || '参战角色校验未通过'}`); return; }
+    // 校界修正过的快照先落盘：战斗里用的数字必须与角色面板一致
+    let nextSave = save;
+    for (const key of ['clamped', 'recovered']) {
+      const patch = built[key] || {};
+      if (!Object.keys(patch).length) continue;
+      nextSave = { ...nextSave, charSnapshots: { ...nextSave.charSnapshots, ...patch } };
+      persistCharSnapshots(nextSave.id, patch);
+      await persist(story, nextSave);
+    }
+    // 这一场是玩家挑起的，AI 不知道缘由 —— 明说一句，免得战后正文写成"不知为何动手"
+    const note = [String(spec?.note || '').trim() || '玩家主动挑起这场战斗', built.note].filter(Boolean).join('；');
+    const setup = {
+      units: built.units,
+      mapRecipe: built.mapRecipe,
+      kind: built.kind,
+      allowDeath: built.allowDeath,
+      note,
+      seed: battleSeed,
+    };
+    setup.state = createBattle(setup);
+    setBattleSetupOpen(false);
+    setBattle({ setup, note, warnings: built.warnings, collapsed: false });
+    if (built.warnings.length) toast('warn', built.warnings[0]);
+    toast('ok', `战斗开始：${describeBattleSetup(built)}`);
+    // 战斗模式关着时，提示词走的是「AI 自行推演」那一套；玩家手动开战仍由程序接管结算，说一声
+    if (settings?.battle?.mode !== 'manual') {
+      toast('warn', '「设置 → 战斗模式」当前是关闭的；这一场仍由程序接管结算，打完照常把战报交回 AI');
+    }
+  }, [busy, battle, save, story, settings, persist, toast]);
 
   const send = () => {
     const t = input.trim();
@@ -732,13 +832,25 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
   const stop = () => {
     abortRef.current?.abort();
     abortRef.current = null;
-    setAutoTurn(false); // 停止的同时退出自动模式
   };
 
   // ===== 回合右键：回退 / 重新生成（均回滚快照） =====
   const attrs = computeAttrs(save.character);
   const c = save.character;
   const w = save.world;
+  // 右栏「个人信息」三行（境界 / 年龄 / 寿元）一律读主角快照。
+  // 这几项每回合都可能变，唯一准处是快照 identity；角色本体 character 里的 realm/age
+  // 在开局之后没有任何写入路径（破境只写 snap.identity.realm，见 engine/cultivationSettle.js），
+  // 拿本体显示会一直停在开局值。本体只作旧档或空快照的兜底。
+  const pIdt = save.charSnapshots?.B1?.identity || {};
+  const pRealm = pIdt.realm || c.realm?.name || '—';
+  // 进度是 0-100 的百分数（同 cultivationSettle 的 clampPct），0 是刚破境的合法值，不能当"没数据"
+  const pRealmPct = Math.max(0, Math.min(100, Math.round(Number(pIdt.realmProgress) || 0)));
+  // 年龄与寿元用 > 0 判据：快照默认值是 0，那是"没数据"而非真实年龄 0 岁
+  const pAge = Number(pIdt.age) > 0 ? Number(pIdt.age) : (c.age ?? 0);
+  const pLifespan = Number(pIdt.shouyuan) > 0
+    ? Number(pIdt.shouyuan) + (Number(pIdt.extraShouyuan) || 0)
+    : (c.realm?.lifespan || 80);
 
   // 定位回合边界：返回 { userIdx, aiIdx, userInput, prePayload }
   const turnOf = useCallback((index) => {
@@ -771,7 +883,7 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
     const b = story[index];
     if (!b || (b.role !== 'user' && b.role !== 'ai') || b.streaming) return;
     e.preventDefault();
-    setCtxMenu({ x: Math.min(e.clientX, window.innerWidth - 150), y: Math.min(e.clientY, window.innerHeight - 110), index });
+    setCtxMenu({ x: Math.min(e.clientX, window.innerWidth - 150), y: Math.min(e.clientY, window.innerHeight - 150), index });
   };
 
   // 回退：回到「该回合 AI 已回复后」的状态（回退最后一回合 = 无变化）
@@ -790,7 +902,8 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
     }
     const kept = story.slice(0, t.aiIdx + 1);
     setStory(kept);
-    await persist(kept, next);
+    // 回退要把记忆一起退回那一刻（存档点 payload 里带着当时的记忆列表）
+    await persist(kept, next, { rollbackMemories: true });
     toast('ok', `已回退：保留到第 ${target.turn} 节，该回合 AI 回复后`);
   };
 
@@ -809,7 +922,8 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
     }
     const kept = story.slice(0, cutIdx);
     setStory(kept);
-    await persist(kept, next);
+    // 重新生成等于把这一回合抹掉重跑，记忆同样要退回去
+    await persist(kept, next, { rollbackMemories: true });
     pendingRegen.current = { input: t.userInput || '' };
     toast('ok', '已回滚到该回合前，正在重新生成…');
   };
@@ -834,12 +948,31 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
     toast('ok', '发言已修改，未重新生成后续内容');
   };
 
+  // ===== AI 正文编辑：只改文字本身，不回滚快照、不重生成 =====
+  // 改动会随存档落盘；下一回合提示词的 {{storyText}}（最近 3 块正文）读到的就是改后的文字。
+  // 注意：回合存档点 payload 不含 story（applySnapshotPayload 保留故事），回退不会把手改正文盖回去。
+  const startEditAi = useCallback((index) => {
+    const b = story[index];
+    if (!b || b.role !== 'ai' || b.streaming) return;
+    setCtxMenu(null);
+    setEditingAi({ index, text: b.text });
+  }, [story]);
+
+  const saveAiEdit = async (index, text) => {
+    const t = String(text || '').trim();
+    if (!t) return;
+    const next = story.map((b, i) => (i === index ? { ...b, text: t, edited: true } : b));
+    setStory(next);
+    setEditingAi(null);
+    await persist(next, save);
+    toast('ok', '正文已修改，未回滚任何状态');
+  };
+
   // 回滚到第 index 层发言之前，并把新文字交给重生成队列（复用「重新生成」通道）
   const rerunFrom = async (index, text) => {
     const b = story[index];
     if (!b || b.role !== 'user') return;
     setEditing(null);
-    setAutoTurn(false); // 与自动下回合互斥，避免同一回合并发触发两次生成
     let next = { ...save };
     if (b.prePayload) {
       next = applySnapshotPayload(save, b.prePayload);
@@ -848,7 +981,8 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
     }
     const kept = story.slice(0, index);
     setStory(kept);
-    await persist(kept, next);
+    // 重新发送同样要回滚，记忆跟着退
+    await persist(kept, next, { rollbackMemories: true });
     pendingRegen.current = { input: String(text || '').trim() };
   };
 
@@ -858,7 +992,6 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
     if (!t) return;
     if (busy) {
       setQueuedResend({ index, text: t });
-      setAutoTurn(false);
       setEditing(null);
       toast('warn', '本轮仍在生成：已排队，本轮结束或停止后自动重新发送');
       return;
@@ -902,30 +1035,37 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
           {busy ? (stage === 'evolve' ? '快照演化中…' : '正文生成中…') : saved ? '已保存' : '保存中…'}
         </span>
         <button className="ghost small" onClick={async () => { await persist(story, { ...save, story }); setSavesRefresh(x => x + 1); toast('ok', '存档已保存'); }}>保存</button>
-        {/* 主题切换：玄墨（夜）/ 宣纸（昼）。只改 <html data-theme>，不重渲染、不动布局 */}
+        {/* 主题切换：浓墨（深青）/ 淡墨（宣纸）。只改 <html data-theme>，不重渲染、不动布局 */}
         <button
           className={`ghost small theme-toggle${theme === 'light' ? ' on-light' : ''}`}
-          title={theme === 'dark' ? '切到宣纸（亮色）' : '切到玄墨（深色）'}
+          title={theme === 'dark' ? '切到淡墨（宣纸色）' : '切到浓墨（深青色）'}
           aria-label="切换界面主题"
           onClick={() => setTheme(applyTheme(theme === 'dark' ? 'light' : 'dark'))}
         >
           <span className="theme-mark" aria-hidden="true" />
-          {THEMES.find(t => t.id === theme)?.name || '玄墨'}
+          {THEMES.find(t => t.id === theme)?.name || '浓墨'}
         </button>
         <button className="ghost small" onClick={onExit}>返回主页</button>
       </div>
 
       <div className="game-shell">
-        {/* 左侧导航栏 */}
+        {/* 左侧导航栏：一根挂绳，竹简一片片系在绳上 */}
         <nav className="game-nav">
-          {NAV_ITEMS.map(item => (
-            <button key={item.id}
-              className={`nav-item ${page === item.id && item.id !== 'characters' ? 'active' : ''} ${item.id === 'characters' && showChars ? 'active' : ''}`}
-              onClick={() => navTo(item.id)}>
-              <span className="nav-icon">{item.icon}</span>
-              <span className="nav-label">{item.name}</span>
-            </button>
-          ))}
+          <div className="nav-cord" aria-hidden="true" />
+          <div className="nav-stack">
+            {NAV_ITEMS.map(item => (
+              <button key={item.id}
+                className={`nav-item ${page === item.id && item.id !== 'characters' ? 'active' : ''} ${item.id === 'characters' && showChars ? 'active' : ''}`}
+                onClick={() => navTo(item.id)}>
+                {/* 牌顶的挂结：绳子在竹片顶端勒出的一小团绳疙瘩。
+                    竹**节**（竹子一节一节的那道箍）是 .nav-item::after 画的，见 guigu.css ——
+                    它是纯装饰、不参与交互，所以没走 DOM，这个节点里只有挂结。 */}
+                <span className="nav-knot" aria-hidden="true" />
+                <span className="nav-icon">{item.icon}</span>
+                <span className="nav-label">{item.name}</span>
+              </button>
+            ))}
+          </div>
           <div className="nav-bottom">
             <div className="nav-turn">第 {save.turnCount} 回合</div>
             <div className="nav-time">{w.timeLabel}</div>
@@ -942,10 +1082,41 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
                   {story.map((b, i) => (
                     <div className="story-block" key={i} onContextMenu={e => onStoryContextMenu(e, i)}>
                       <div className="turn-tag">◆ 第 {b.turn} 节 · {b.timeLabel}</div>
-                      {b.role === 'ai' ? (
+                      {b.role === 'ai' && editingAi?.index === i ? (
+                        // ===== AI 正文编辑态 =====
+                        <div className="story-edit">
+                          <textarea
+                            className="story-edit-area"
+                            value={editingAi.text}
+                            autoFocus
+                            onChange={e => setEditingAi(ed => (ed ? { ...ed, text: e.target.value } : ed))}
+                            onKeyDown={e => {
+                              if (e.key === 'Escape') { e.preventDefault(); setEditingAi(null); }
+                              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveAiEdit(i, editingAi.text); }
+                            }}
+                          />
+                          <div className="story-edit-bar">
+                            <span className="story-edit-hint">
+                              只修改文字本身，不回滚快照、不重新生成；下一回合提示词将使用改后的正文
+                            </span>
+                            <button className="ghost small" onClick={() => setEditingAi(null)}>取消</button>
+                            <button className="primary small"
+                              disabled={busy || !editingAi.text.trim() || editingAi.text.trim() === b.text}
+                              title={busy ? '本轮生成中不能保存' : '保存修改 · Ctrl+Enter'}
+                              onClick={() => saveAiEdit(i, editingAi.text)}>保存</button>
+                          </div>
+                        </div>
+                      ) : b.role === 'ai' ? (
                         // 流式期间同步用 StoryRenderer 渲染（半截运行时标签由渲染器截断，闭合后整块出现）
                         <>
-                          <StoryRenderer text={b.text} palette={settings?.textRules?.colorPalette} onPickOption={t => { setInput(t); toast('ok', '已填入发送框，可编辑后发送'); }} />
+                          <StoryRenderer text={b.text} think={b.think} streaming={b.streaming} palette={settings?.textRules?.colorPalette} onPickOption={t => { setInput(t); toast('ok', '已填入发送框，可编辑后发送'); }} />
+                          {!b.streaming && (
+                            <div className="ai-edit-row">
+                              {b.edited && <span className="edited-mark" title="这条回复修改过">已编辑</span>}
+                              <button className="msg-edit-btn" title="编辑这条回复的正文（只改文字，不动状态）"
+                                onClick={() => startEditAi(i)}>✎ 编辑正文</button>
+                            </div>
+                          )}
                           {/* 战报可回顾：正文是 AI 写的「过程」，这里是程序算出来的「账」 */}
                           {b.battleLog && (
                             <details className="battle-report">
@@ -1002,10 +1173,6 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
                 </div>
                 <div className="action-bar">
                   <div className="quick-actions">
-                    {QUICK.map(q => (
-                      <button key={q} disabled={busy} onClick={() => doTurn(quickActionNarrative(save, q))}>{q}</button>
-                    ))}
-                    <button className={autoTurn ? 'primary' : ''} onClick={() => setAutoTurn(a => !a)}>{autoTurn ? '停止自动' : '自动下回合'}</button>
                     <span className="word-range-ctl" title="正文字数规范，修改后自动保存并注入 AI 提示词">
                       字数
                       <input
@@ -1022,6 +1189,12 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
                         aria-label="最多字数"
                       />
                     </span>
+                    <button className="danger small manual-battle-btn"
+                      disabled={busy || !!battle}
+                      title={battle
+                        ? '战斗进行中，先打完并结算'
+                        : (busy ? '正文生成中，等这一轮结束' : '自己挑参战人物，立刻开一场战斗（不必等 AI 安排）')}
+                      onClick={() => setBattleSetupOpen(true)}>⚔ 开战</button>
                     <span style={{ fontSize: 12, color: 'var(--text-faint)', marginLeft: 'auto' }}>
                       {(() => {
                         const se = storyEndpointOf(settings);
@@ -1075,14 +1248,15 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
                   <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>{c.gender} · {c.race?.name} · {c.origin?.name}</div>
                 </Collapsible>
                 <Collapsible title="个人信息" defaultOpen>
-                  <div className="kv"><span className="k">境界</span><span className="v">{c.realm?.name}(0%)</span></div>
-                  <div className="kv"><span className="k">年龄</span><span className="v">{c.age} 岁</span></div>
-                  <div className="kv"><span className="k">寿元</span><span className="v">约 {Math.max(0, (c.realm?.lifespan || 80) - c.age)} 年</span></div>
+                  <div className="kv"><span className="k">境界</span><span className="v">{pRealm}({pRealmPct}%)</span></div>
+                  <div className="kv"><span className="k">年龄</span><span className="v">{pAge} 岁</span></div>
+                  <div className="kv"><span className="k">寿元</span><span className="v">约 {Math.max(0, pLifespan - pAge)} 年</span></div>
                 </Collapsible>
                 <Collapsible title="道基属性" defaultOpen>
                   <SideAttrList save={save} />
                   <div className="kv"><span className="k">灵根</span><span className="v" style={{ fontSize: 12 }}>{rootDisplayName(c.root)}</span></div>
                   <div className="kv"><span className="k">修炼速度</span><span className="v">{Math.round((ROOT_CULTIVATE_RATE[c.root?.typeId] || 0.7) * 100)}%</span></div>
+                  <CultRateRow snap={save.charSnapshots?.B1} settings={settings} />
                 </Collapsible>
                 {(save.plot?.direction || Object.values(save.plot?.styles || {}).some(x => x.selected)) && (
                   <Collapsible title="剧情演化" defaultOpen>
@@ -1107,8 +1281,6 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
           {page === 'saves' && <SavesManagerPage save={save} onSwitchSave={onSwitchSave} onNewSave={onNewSave} refreshKey={savesRefresh} />}
           {page === 'factors' && <FactorsPage save={save} updateSave={updateSave} saveNow={saveNow} />}
           {page === 'worldbook' && <WorldBookPage worldbook={settings?.worldbook || []} onSave={saveWorldbook} />}
-          {page === 'assistant' && <AssistantPage save={save} updateSave={updateSave} saveNow={saveNow} mode={mode} />}
-          {page === 'snapshots' && <SnapshotsPage save={save} updateSave={updateSave} saveNow={saveNow} worldbook={settings?.worldbook || []} />}
           {page === 'map' && <MapPage save={save} updateSave={updateSave} saveNow={saveNow} />}
           {page === 'numeric' && (
             <NumericPage save={save} updateSave={updateSave} saveNow={saveNow} settings={settings} onSettingsChange={setSettings} />
@@ -1121,6 +1293,17 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
           )}
         </div>
       </div>
+
+      {/* 「⚔ 开战」：自己挑参战人物，不必等 AI 在正文里安排战斗 */}
+      {battleSetupOpen && (
+        <BattleSetupModal
+          save={save}
+          settings={settings}
+          busy={busy}
+          onClose={() => setBattleSetupOpen(false)}
+          onStart={startManualBattle}
+        />
+      )}
 
       {/* ===== 战斗（程序接管）=====
           覆盖式界面；点「收起」不结束战斗，只把它缩成一条悬浮提示，战斗状态原样保留。 */}
@@ -1142,7 +1325,8 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
       {showChars && (
         <>
           <div className="drawer-backdrop" onClick={() => setShowChars(false)} />
-          <CharacterPanel save={save} updateSave={updateSave} saveNow={saveNow} onClose={() => setShowChars(false)} settings={settings} />
+          <CharacterPanel save={save} updateSave={updateSave} saveNow={saveNow} onClose={() => setShowChars(false)} settings={settings}
+            onSnapshotSaved={refreshTurnCheckpoint} />
         </>
       )}
 
@@ -1159,6 +1343,10 @@ export default function GameDashboard({ save: rawSave, updateSave, saveNow, onEx
             {ctxTarget?.userIdx != null && (
               <button onClick={() => startEdit(ctxTarget.userIdx)}
                 title="修改本回合的玩家发送语句，可仅保存或直接重新发送">✎ 编辑本次发送语句</button>
+            )}
+            {ctxTarget?.aiIdx != null && (
+              <button onClick={() => startEditAi(ctxTarget.aiIdx)}
+                title="修改本回合的回复正文（只改文字，不回滚状态、不重新生成）">✎ 编辑本回合正文</button>
             )}
           </div>
         </>
@@ -1177,18 +1365,23 @@ function SideAttrList({ save }) {
   if (!rows.length) return null;
   return (
     <div className="attr-num-list" style={{ gridTemplateColumns: '1fr' }}>
-      {rows.map(r => (
-        <div className="attr-num-row" key={r.key}>
-          <span className="label">{r.label}</span>
-          <span className="nums">
-            {r.isPool ? `${r.effCurrent} / ${r.effMax}` : r.effCurrent}
-            {!!r.total && (
-              <span className={`bonus-total ${r.total > 0 ? 'up' : 'down'}`}
-                title={attrBonusHint(r)}>（{r.total > 0 ? '+' : ''}{r.total}）</span>
-            )}
-          </span>
-        </div>
-      ))}
+      {rows.map(r => {
+        // 显示文案统一走 attrRowView；返回 null 表示这一行不上界面（装备修炼速度词条那行）
+        const v = attrRowView(r);
+        if (!v) return null;
+        return (
+          <div className="attr-num-row" key={r.key}>
+            <span className="label">{v.label}</span>
+            <span className="nums">
+              {v.text}
+              {!!r.total && (
+                <span className={`bonus-total ${r.total > 0 ? 'up' : 'down'}`}
+                  title={attrBonusHint(r)}>（{r.total > 0 ? '+' : ''}{r.total}）</span>
+              )}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

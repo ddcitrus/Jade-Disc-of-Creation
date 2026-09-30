@@ -280,7 +280,7 @@ export default function NumericPage({ save, updateSave, saveNow, settings, onSet
           {sel === 'realmProfiles' && (
             <div className="notice" style={{ margin: '8px 0' }}>
               「立即校验人物属性」按此表逐境界校界：<b>上限值 <span className="lbl-note">max</span></b>压到 <code>xxUpper</code>、低于 <code>xxBase</code> 时抬回基准；
-              <b>当前值 <span className="lbl-note">current</span></b>只压不抬（受伤、耗蓝是正常状态），天花板取 min(上限, max)。
+              <b>当前值 <span className="lbl-note">current</span></b>只压不抬（受伤、耗蓝是正常状态），天花板取「数值表上限」与境界上限中较小的那个。
               表内未收录的属性：{UNCOVERED_STATS.map(u => u.label).join('、')}，不参与校界。
               校界映射：{REALM_STAT_MAP.map(s => `${s.label}→${s.field}`).join('、')}。
             </div>

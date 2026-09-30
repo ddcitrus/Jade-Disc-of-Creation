@@ -27,6 +27,9 @@ const STACK = {
   kai: '"STKaiti", "华文楷体", "Kaiti SC", "KaiTi", "楷体", serif',
   // 行楷（主菜单大标题那支招牌字）
   xingkai: '"STXingkai", "华文行楷", "STKaiti", "华文楷体", serif',
+  // ⚠ 自备封面字（飞波正点体）**不在这里**：它是**精确子集**（只有进入页面那几十个字），
+  //   选给站内标题会大面积缺字回退成楷体；进入页面走 guigu.css 的 --font-cover，与偏好脱钩。
+  //   字体栈的定义只保留一份，就在 guigu.css 的 :root —— 别在这里再抄第二份。
   // 宋体族
   song: '"STSong", "华文宋体", "STZhongs", "华文中宋", "Songti SC", "SimSun", "宋体", serif',
   // 仿宋
@@ -38,9 +41,14 @@ const STACK = {
 };
 
 /*
- * 三个可调槽位。cssVars 可以是多个 —— 例如「标题」同时管 --font-serif（各级标题）
- * 与 --font-title（主菜单大标题那支行楷）。选「默认」时两个都不动，
- * 于是主标题保持行楷、其余标题保持楷体；一旦选了具体某族，两者一起换成那一族。
+ * 三个可调槽位。cssVars 是这一槽管的那几个 CSS 变量；选「默认」时把它们**移除**，
+ * 回落到样式表里的默认值。
+ *
+ * ⚠⚠ 进入页面（主菜单）的封面字**故意不在这里** —— 它叫 --font-cover，只出现在 guigu.css
+ *    （:root 定义、§8/§18 引用），任何槽的 cssVars 都不含它。
+ *    原因：玩家浏览器里存着字体偏好时，applyFonts 会把字体栈**内联**写到 <html>，内联声明
+ *    盖过样式表 ⇒ 整个进入页面跟着偏好变（真机复现：9 处文字宽度 263.47 → 309.64）。
+ *    封面字是产品的门面、不该被偏好左右 —— **别再把它加回任何槽的 cssVars**。
  */
 export const FONT_SLOTS = [
   {
@@ -53,9 +61,9 @@ export const FONT_SLOTS = [
   },
   {
     id: 'title',
-    cssVars: ['--font-serif', '--font-title'],
+    cssVars: ['--font-serif'],
     label: '标题与强调',
-    hint: '各级标题、卡片名、对话说话人，以及主菜单的大标题。',
+    hint: '各级标题、卡片名、对话说话人、原文引文。进入页面（主菜单）的字是固定的，不在这里管。',
     sample: '第一章 · 山边小村',
     big: true,
   },
@@ -82,7 +90,7 @@ export const FONT_CHOICES = {
     { id: 'mono', name: '等宽', stack: STACK.mono },
   ],
   title: [
-    { id: '', name: '默认', note: '楷体' },
+    { id: '', name: '默认', note: '华文楷体' },
     { id: 'kai', name: '楷体', stack: STACK.kai },
     { id: 'xingkai', name: '行楷', stack: STACK.xingkai },
     { id: 'song', name: '宋体', stack: STACK.song },

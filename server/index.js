@@ -4,6 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 // 快照 v2 的校验口径与前端共用同一份实现（服务端与客户端不允许漂移）
+// ⚠ 下面这几行跨目录 import 会把「整条前端数据模块图」拖进 node 直跑路径，两条硬约束：
+//   ① 链上任何模块都不得**裸 import JSON** —— 必须写成 `with { type: 'json' }`
+//      （client/src/data/numericTuning.js 的数值表已按此写法）。少了 attribute，node 会在
+//      listen 之前抛 ERR_IMPORT_ATTRIBUTE_MISSING，后端在写任何日志之前就退出；用户看到的是
+//      「双击启动脚本，窗口刷一堆 assert 栈后自动关闭」。2026-09-26 踩过一次，别再犯。
+//   ② 不要在这里新增依赖浏览器 API / .jsx / .css 的模块。
+//   自检：用系统 node（v24）动态 import 一次 snapshotV2.js，能加载成功即整链可加载。
 import { parseEditBlock, validateV2Snapshot } from '../client/src/data/snapshotV2.js';
 import { sanitizeSaveInPlace, stripPlayerBlockInPlace } from '../client/src/data/saveSanitize.js';
 import { parseEvolutionV2Text, buildRewriteFeedbackV2 } from '../client/src/data/evolutionV2Envelope.js';
@@ -19,22 +26,22 @@ const SNAPSHOTS_DIR = path.join(DATA_DIR, 'snapshots');
 const CHAR_SNAPS_DIR = path.join(DATA_DIR, 'char_snaps'); // 各角色独立快照存储
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const FACTOR_LIBRARY_FILE = path.join(DATA_DIR, 'factor-library.json'); // 世界因子库（跨存档：自定义因子 + 组合）
-const WORLD_BOOK_FILE = path.join(DATA_DIR, 'worldbook.json'); // 世界书（跨存档共用：不再存在各存档里）
+const WORLD_BOOK_FILE = path.join(DATA_DIR, 'worldbook.json'); // 世界书（跨存档共用，不放在各存档里）
 
 fs.mkdirSync(SAVES_DIR, { recursive: true });
 fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true });
 fs.mkdirSync(CHAR_SNAPS_DIR, { recursive: true });
 
 const DEFAULT_SETTINGS = {
-  // 本地旁白引擎已下线：正文与快照一律走 OpenAI 兼容接口（mode 恒为 ai）
+  // 正文与快照一律走 OpenAI 兼容接口（mode 恒为 ai）
   mode: 'ai',
   // 接口库：[{ id, name, baseUrl, apiKey, model, temperature }]，正文 / 快照两个通道各自选用
-  // 落盘在 settings.json，跨存档共用；空库且未迁移过时从旧版 ai / aiSnapshot 自动迁移一条
+  // 落盘在 settings.json，跨存档共用；空库且未迁移过时从 ai / aiSnapshot 自动迁移一条
   apiEndpoints: [],
   apiMigrated: false,
   storyEndpointId: '',     // 正文通道使用的接口 id（'' = 库里第一条已填地址的）
   snapshotEndpointId: '',  // 快照通道使用的接口 id（'' = 与正文相同）
-  // 以下两个字段是旧版单通道配置，仅作为迁移来源保留，不再被界面读写
+  // 以下两个字段是单通道时期的配置，仅作为迁移来源保留，界面不读写
   ai: { baseUrl: '', apiKey: '', model: '', temperature: 0.9 },
   aiSnapshot: { enabled: false, baseUrl: '', apiKey: '', model: '', temperature: 0.4 },
   // 正文输出预算硬顶（max_tokens）。推理模型的思考 token 也计入——若正文总被截断请调大；0 = 不设顶
@@ -63,13 +70,9 @@ const DEFAULT_SETTINGS = {
   storyPresets: [],
   // 快照编辑规则（重点演化各阶段）：保留兼容旧字段
   evolutionRules: null,
-  // 新增：导入的快照演化预设（如「完整版-物品管理.json」）
+  // 新增：导入的快照演化预设
   // 结构：{ name, description, contentTemplates, entrySharedRules, stages }[]
   evolutionPresets: [],
-  // 人物生平压缩
-  bio: { threshold: 30, template: '' },
-  // 导入的生平压缩预设（类似 default.json）
-  bioPresets: [],
   // 故事记忆（叙事记忆）
   memory: { enabled: true, summaryLen: 60, keepSummaries: 40, injectSummaries: 10, recapEnabled: true, recapEvery: 10, recapLen: 150, injectRecaps: 5, keepRecaps: 10 },
   // 演化自动重写次数上限（格式不合规时打回）
@@ -158,7 +161,7 @@ function snapshotEndpoint(s) {
 function applyApiConfig(s) {
   s.mode = 'ai';
   s.apiEndpoints = normalizeEndpointList(s.apiEndpoints);
-  // 旧版单通道配置 → 迁移进接口库。只在「库为空 且 从未迁移过」时执行，
+  // 单通道配置 → 迁移进接口库。只在「库为空 且 从未迁移过」时执行，
   // 否则用户把接口全删光后，残留的旧字段会把它变回来。
   if (!s.apiEndpoints.length && !s.apiMigrated) {
     const legacy = s.ai || {};
@@ -222,6 +225,20 @@ app.get('/api/saves', (req, res) => {
 app.post('/api/saves', (req, res) => {
   const save = req.body;
   if (!save || !save.id) return res.status(400).json({ error: 'invalid save' });
+  // 记忆（memories / memoryRecaps）只由下方 /api/saves/:id/memories 维护，这里默认不认客户端带上来的那一份。
+  // 原因：记忆是回合结束后**异步**追加的，客户端手里的副本常停在追加之前；每回合开场这次整份覆盖
+  // 会把刚追加的那条冲掉（逐回合实测 story[].payload.memories 恒为 0/1 条，条数从不增长，
+  // 阶段总结因此永远不满足「满 10 条」的触发条件）。
+  // 例外：回退到某回合 / 重新生成 / 重新发送 —— 它们本就要把记忆退回到那一刻，客户端会显式声明 rollbackMemories。
+  const rollbackMemories = !!save.rollbackMemories;
+  delete save.rollbackMemories;   // 标记不进存档文件
+  if (!rollbackMemories) {
+    try {
+      const prev = JSON.parse(fs.readFileSync(saveFile(save.id), 'utf-8'));
+      save.memories = Array.isArray(prev.memories) ? prev.memories : [];
+      save.memoryRecaps = Array.isArray(prev.memoryRecaps) ? prev.memoryRecaps : [];
+    } catch { /* 首次落盘：文件还不存在，沿用客户端交上来的 */ }
+  }
   // 兜底自愈：老版本客户端内存里可能是「姓名 = B1 / 长期目标 = 性格底色」的坏数据，
   // 它会整份覆盖上来。在这里过一遍同一份修复规则，保证磁盘永远不会被写脏。
   const healed = sanitizeSaveInPlace(save);
@@ -346,7 +363,7 @@ function readFactorLibrary() {
   } catch { return { custom: [], sets: [] }; }
 }
 // ---------- 世界书（跨存档共用，与因子库同级） ----------
-// 以前每份存档各存一套世界书；现在所有存档共用 server/data/worldbook.json 这一个文件。
+// 所有存档共用 server/data/worldbook.json 这一个文件，不再各存一套。
 // 前端从 GET /api/settings 拿到（见下方 settings 接口），写入只走 PUT /api/worldbook。
 function normalizeWorldbook(src) {
   const list = Array.isArray(src) ? src : (Array.isArray(src?.entries) ? src.entries : []);
@@ -542,7 +559,7 @@ async function callAI(settings, messages, maxTokens = 2000, presetOverride = nul
   let temperature = Number(presetOverride?.temperature ?? settings.ai.temperature);
   if (!Number.isFinite(temperature)) temperature = 0.9;
   // max_tokens：若预设指定了 openai_max_tokens，优先用预设值（青竹预设 52000）
-  // 不再用 min(请求值, 预设值) 截断——预设值是作者按模型能力设定的上限
+  // 预设值直接覆盖请求值，不做 min() 截断——预设值是作者按模型能力设定的上限
   if (presetOverride?.openai_max_tokens && Number(presetOverride.openai_max_tokens) > 0) {
     maxTokens = Number(presetOverride.openai_max_tokens);
   }
@@ -832,6 +849,11 @@ app.post('/api/ai/story', async (req, res) => {
                 const fr = obj.choices?.[0]?.finish_reason;
                 if (fr) finishReason = fr;
                 const delta = obj.choices?.[0]?.delta?.content || '';
+                // 思维链走独立字段的模型（DeepSeek-R1 风格 reasoning_content / 部分代理用 reasoning）：
+                // 不并入正文，单独发 reason 事件，前端写进思考栏
+                const reason = obj.choices?.[0]?.delta?.reasoning_content
+                  ?? obj.choices?.[0]?.delta?.reasoning ?? '';
+                if (reason) send({ type: 'reason', text: reason });
                 if (delta) {
                   gotDelta = true; deltaCount++; contentChars += delta.length;
                   if (!firstDeltaAt) {
@@ -944,106 +966,67 @@ app.post('/api/ai/story', async (req, res) => {
   }
 });
 
-// ---------- Stage 2：快照演化（读取正文+快照+规则，输出严格 JSON 信封） ----------
-// body: { messages, presetType } —— 由前端用 evolutionPrompt.assembleEvolutionPrompt 组装
-// presetType: 'concurrent' 时用宽松校验（字段结构由预设定义，不强制本系统必填字段）
-// 服务端做：调用 AI → 解析 → 校验 → 失败自动打回重写（最多 N 次）
+// ---------- Stage 2：快照演化（读取正文+快照+规则，输出 v2 修改语句信封） ----------
+// body: { messages, knownIds, ownedItems } —— 由前端用 evolutionPrompt.assembleEvolutionPromptV2 组装
+// 服务端做：调用 AI → 解析 v2 四段信封 → 逐行校验修改语句与新增角色快照 → 失败自动打回重写（最多 N 次）
 app.post('/api/ai/evolve', async (req, res) => {
   const body = req.body || {};
   const settings = readSettings();
   if (!Array.isArray(body.messages) || !body.messages.length) {
     return res.status(400).json({ error: 'messages 必填' });
   }
-  const isConcurrent = body.presetType === 'concurrent';
-  // v2 路径：只输出「修改语句 + 新增角色」，由服务端逐行校验后打回
-  const isV2 = body.mode === 'v2';
   const maxRetries = Number(settings.evolutionMaxRetries) || 3;
-  // concurrent 预设输出为 tagged 指令行（几百-几千 token 足够）。
-  // 实测 16000 会加剧代理输出预算预留 → 空回复/524 风险，降到 8192
-  const evolveMaxTokens = isConcurrent ? 8192 : 8000;
+  // v2 输出为「修改语句 + 新增角色」，几千 token 足够；再高只会加剧代理输出预算预留 → 空回复/524 风险
+  const evolveMaxTokens = 8000;
   let lastRaw = '';
   let lastErrors = [];
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     let messages = body.messages;
     if (attempt > 1) {
       // 注入打回反馈
-      const feedback = isV2
-        ? buildRewriteFeedbackV2(lastRaw, lastErrors)
-        : buildServerRewriteFeedback(lastRaw, lastErrors);
+      const feedback = buildRewriteFeedbackV2(lastRaw, lastErrors);
       messages = [...body.messages, { role: 'assistant', content: lastRaw }, { role: 'user', content: feedback }];
     }
     try {
       // 快照演化 → 快照通道（可独立配置）
       const raw = await callAI(snapshotAISettings(settings), messages, evolveMaxTokens);
       lastRaw = raw;
-      // ---- v2 路径：逐行校验「修改语句」，并校验新增角色的完整快照 ----
-      if (isV2) {
-        const pv = parseEvolutionV2Text(raw);
-        if (!pv.ok) { lastErrors = [{ code: 'parse', msg: pv.error }]; continue; }
-        const knownIds = Array.isArray(body.knownIds) ? body.knownIds.map(String) : null;
-        // ownedItems：各角色储物袋现状（客户端带上来的）—— 校验「装备的物品必须先登记进储物袋」
-        const ownedItems = body.ownedItems && typeof body.ownedItems === 'object' ? body.ownedItems : null;
-        const { edits, errors: editErrors } = parseEditBlock(pv.parsed.editText, { knownIds, ownedItems });
-        if (editErrors.length) {
-          lastErrors = editErrors.map(e => ({ code: 'edit', msg: e.msg }));
-          continue;
-        }
-        const initErrors = [];
-        const initFixed = {};
-        for (const [id, snap] of Object.entries(pv.parsed.init || {})) {
-          const r = validateV2Snapshot(id, snap);
-          if (r.errors.length) initErrors.push(...r.errors.map(m => ({ code: 'init', msg: m })));
-          else {
-            initFixed[id] = r.fixed;
-            // 新角色的战斗数值必须落在该境界的区间内（打回时带区间与表路径）
-            initErrors.push(...realmBoundErrors(settings, id, r.fixed));
-          }
-        }
-        if (initErrors.length) { lastErrors = initErrors; continue; }
-        return res.json({
-          ok: true,
-          attempts: attempt,
-          raw,
-          result: {
-            format: 'v2',
-            thinking: pv.parsed.thinking,
-            init: initFixed,
-            edits,
-            editText: pv.parsed.editText,
-            worldTime: pv.parsed.worldTime,
-          },
-        });
-      }
-      // concurrent 预设允许 tagged 标签格式回退（<state>/<upstore> 指令行）
-      const parsed = tryParseEvolutionJson(raw, isConcurrent);
-      if (!parsed.ok) {
-        lastErrors = [{ code: 'parse', msg: parsed.error }];
+      // 逐行校验「修改语句」，并校验新增角色的完整快照
+      const pv = parseEvolutionV2Text(raw);
+      if (!pv.ok) { lastErrors = [{ code: 'parse', msg: pv.error }]; continue; }
+      const knownIds = Array.isArray(body.knownIds) ? body.knownIds.map(String) : null;
+      // ownedItems：各角色储物袋现状（客户端带上来的）—— 校验「装备的物品必须先登记进储物袋」
+      const ownedItems = body.ownedItems && typeof body.ownedItems === 'object' ? body.ownedItems : null;
+      const { edits, errors: editErrors } = parseEditBlock(pv.parsed.editText, { knownIds, ownedItems });
+      if (editErrors.length) {
+        lastErrors = editErrors.map(e => ({ code: 'edit', msg: e.msg }));
         continue;
       }
-      // 服务端最小校验：必须有 snapshots 字段且是对象
-      const result = parsed.parsed;
-      if (!result || typeof result !== 'object' || !result.snapshots || typeof result.snapshots !== 'object' || Array.isArray(result.snapshots)) {
-        lastErrors = [{ code: 'shape', msg: '缺少 snapshots 字段或类型不符' }];
-        continue;
-      }
-      // 校验每个快照
-      const snapErrors = [];
-      for (const [id, snap] of Object.entries(result.snapshots)) {
-        if (isConcurrent) {
-          // concurrent 预设：宽松校验——快照值是对象即可（字段结构由预设定义）
-          const e = concurrentSnapshotCheck(id, snap);
-          if (e.length) snapErrors.push({ id, errors: e });
-        } else {
-          const e = minimalSnapshotCheck(id, snap);
-          if (e.length) snapErrors.push({ id, errors: e });
+      const initErrors = [];
+      const initFixed = {};
+      for (const [id, snap] of Object.entries(pv.parsed.init || {})) {
+        const r = validateV2Snapshot(id, snap);
+        if (r.errors.length) initErrors.push(...r.errors.map(m => ({ code: 'init', msg: m })));
+        else {
+          initFixed[id] = r.fixed;
+          // 新角色的战斗数值必须落在该境界的区间内（打回时带区间与表路径）
+          initErrors.push(...realmBoundErrors(settings, id, r.fixed));
         }
       }
-      if (snapErrors.length) {
-        lastErrors = snapErrors.map(x => ({ code: 'snapshot', msg: `角色 ${x.id} 快照不合规`, sub: x.errors }));
-        continue;
-      }
-      // 通过
-      return res.json({ ok: true, result, attempts: attempt, raw });
+      if (initErrors.length) { lastErrors = initErrors; continue; }
+      return res.json({
+        ok: true,
+        attempts: attempt,
+        raw,
+        result: {
+          format: 'v2',
+          thinking: pv.parsed.thinking,
+          init: initFixed,
+          edits,
+          editText: pv.parsed.editText,
+          worldTime: pv.parsed.worldTime,
+        },
+      });
     } catch (e) {
       lastErrors = [{ code: 'call', msg: String(e.message || e) }];
       continue;
@@ -1069,9 +1052,9 @@ app.post('/api/ai/evolve', async (req, res) => {
 
 // ---------- v2 新增角色的「数值对表」校验 ----------
 // AI 首次生成角色（<新增角色> 的完整快照）时，属性必须落在该角色境界的区间内。
-// 旧版只校验字段格式，数值完全没对表：AI 按内置宽表（炼气四层物攻可到 290）写值，
-// 客户端再用玩家生效的窄表（68~72）校界，于是属性凭空超上限、只能被强行压回。
-// 现在在服务端就打回，让 AI 按真正的表重写一次，落库前就已经合法。
+// 只校验字段格式是不够的：AI 会按内置宽表（炼气四层物攻可到 290）写值，
+// 客户端再用玩家生效的窄表（68~72）校界，属性就凭空超上限、只能被强行压回。
+// 所以在服务端就打回，让 AI 按真正的表重写一次，落库前就已经合法。
 // （实现见 client/src/data/realmBounds.js，已在文件顶部导入）
 
 // 生效数值表：优先玩家设置里的覆盖层，缺则回落到内置表文件（缺表 → 返回 null，校验直接跳过）
@@ -1111,161 +1094,6 @@ function realmBoundErrors(settings, id, snap) {
   ];
 }
 
-// 服务端 JSON 解析（容忍 ```json 围栏与前后文本）
-// allowTagged=true 时（concurrent 预设），JSON 解析失败或解析结果缺 snapshots 时
-// 尝试 <thinking>/<state>/<upstore> 标签格式回退
-function tryParseEvolutionJson(text, allowTagged = false) {
-  if (!text || typeof text !== 'string') return { ok: false, error: '空回复' };
-  let candidate = text.trim();
-  const fence = candidate.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence) candidate = fence[1].trim();
-  // 括号配对扫描提取首个完整 JSON 对象（字符串感知，避免被正文/指令中的 {} 干扰）
-  const objStr = extractFirstJsonObject(candidate);
-  if (objStr != null) {
-    try {
-      const parsed = JSON.parse(objStr);
-      if (parsed && typeof parsed === 'object' && parsed.snapshots) {
-        return { ok: true, parsed };
-      }
-      // 解析成功但不是演化信封（缺 snapshots）→ 尝试 tagged 回退
-      if (allowTagged) {
-        const tagged = parseTaggedCommandOutput(text);
-        if (tagged) return { ok: true, parsed: tagged, format: 'tagged' };
-      }
-      return { ok: true, parsed };
-    } catch (e) {
-      if (allowTagged) {
-        const tagged = parseTaggedCommandOutput(text);
-        if (tagged) return { ok: true, parsed: tagged, format: 'tagged' };
-      }
-      return { ok: false, error: e.message };
-    }
-  }
-  if (allowTagged) {
-    const tagged = parseTaggedCommandOutput(text);
-    if (tagged) return { ok: true, parsed: tagged, format: 'tagged' };
-  }
-  return { ok: false, error: '未找到可解析的 JSON 对象' };
-}
-
-// 从文本中提取首个括号配对完整的 JSON 对象字符串（跳过字符串字面量内的花括号）
-function extractFirstJsonObject(text) {
-  const start = text.indexOf('{');
-  if (start < 0) return null;
-  let depth = 0, inStr = false, esc = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (esc) { esc = false; continue; }
-    if (ch === '\\') { if (inStr) esc = true; continue; }
-    if (ch === '"') { inStr = !inStr; continue; }
-    if (inStr) continue;
-    if (ch === '{') depth++;
-    else if (ch === '}') {
-      depth--;
-      if (depth === 0) return text.slice(start, i + 1);
-    }
-  }
-  return null;
-}
-
-// concurrent 预设（tagged outputFormat）的输出回退解析：
-// <thinking>…</thinking> + <state>指令行</state> / <upstore>指令行</upstore>
-// 包装成统一 JSON 信封；指令挂到 B1（前端会与既有快照合并，不覆盖基础字段）
-function parseTaggedCommandOutput(text) {
-  const thinkM = text.match(/<thinking[^>]*>([\s\S]*?)<\/thinking>/i);
-  const stateM = text.match(/<state[^>]*>([\s\S]*?)<\/state>/i);
-  const upstoreM = text.match(/<upstore[^>]*>([\s\S]*?)<\/upstore>/i);
-  if (!stateM && !upstoreM) return null;
-  return {
-    thinking: thinkM ? thinkM[1].trim() : '',
-    snapshots: {
-      B1: {
-        id: 'B1',
-        kind: 'player',
-        stateCommands: stateM ? stateM[1].trim() : '',
-        upstoreCommands: upstoreM ? upstoreM[1].trim() : '',
-      },
-    },
-    deeds: [],
-    worldTime: '',
-  };
-}
-
-// 服务端最小快照校验（与前端 snapshotSchema.validateSnapshot 等价最小集）
-function minimalSnapshotCheck(id, snap) {
-  const errors = [];
-  if (!snap || typeof snap !== 'object' || Array.isArray(snap)) {
-    errors.push({ code: 'type', msg: `角色 ${id} 快照必须是对象` });
-    return errors;
-  }
-  if (!snap.id) errors.push({ code: 'missing', msg: `角色 ${id} 缺少 id` });
-  if (!snap.kind) errors.push({ code: 'missing', msg: `角色 ${id} 缺少 kind` });
-  if (!snap.identity || typeof snap.identity !== 'object') {
-    errors.push({ code: 'missing', msg: `角色 ${id} 缺少 identity 对象` });
-  } else {
-    if (!snap.identity.name) errors.push({ code: 'missing', msg: `角色 ${id} 缺少 identity.name` });
-    if (!snap.identity.gender) errors.push({ code: 'missing', msg: `角色 ${id} 缺少 identity.gender` });
-    if (!snap.identity.realm) errors.push({ code: 'missing', msg: `角色 ${id} 缺少 identity.realm` });
-  }
-  if (!snap.stats || typeof snap.stats !== 'object') {
-    errors.push({ code: 'missing', msg: `角色 ${id} 缺少 stats 对象` });
-  } else {
-    if (!snap.stats.hp || snap.stats.hp.current == null || snap.stats.hp.max == null) {
-      errors.push({ code: 'missing', msg: `角色 ${id} 缺少 stats.hp.{current,max}` });
-    }
-    if (!snap.stats.mp || snap.stats.mp.current == null || snap.stats.mp.max == null) {
-      errors.push({ code: 'missing', msg: `角色 ${id} 缺少 stats.mp.{current,max}` });
-    }
-  }
-  if (!snap.status || typeof snap.status !== 'object' || !snap.status.current) {
-    errors.push({ code: 'missing', msg: `角色 ${id} 缺少 status.current` });
-  }
-  if (!snap.action || typeof snap.action !== 'object' || !snap.action.action) {
-    errors.push({ code: 'missing', msg: `角色 ${id} 缺少 action.action` });
-  }
-  return errors;
-}
-
-// concurrent 预设宽松校验：字段结构由预设定义（stateCommands/upstoreCommands 等），
-// 只要求快照值是对象；若含 identity 则软性检查 name
-function concurrentSnapshotCheck(id, snap) {
-  const errors = [];
-  if (!snap || typeof snap !== 'object' || Array.isArray(snap)) {
-    errors.push({ code: 'type', msg: `角色 ${id} 快照必须是对象` });
-    return errors;
-  }
-  // 软性检查：若有 identity 对象，name 不应为空（可自动修复：用 id 兜底）
-  if (snap.identity && typeof snap.identity === 'object' && !snap.identity.name) {
-    snap.identity.name = snap.identity.name || id; // 自动修复，不打回
-  }
-  return errors;
-}
-
-// 服务端构造打回反馈（与前端 evolutionPrompt.buildRewriteFeedback 等价）
-function buildServerRewriteFeedback(originalText, errors) {
-  const flat = [];
-  const walk = (es, indent = '') => {
-    for (const e of (es || [])) {
-      flat.push(`${indent}- ${e.msg || e.code || JSON.stringify(e)}`);
-      if (e.sub) walk(e.sub, indent + '  ');
-    }
-  };
-  walk(errors);
-  return [
-    '你上一轮的演化输出不符合契约，已被打回。请修正后重新输出合法 JSON。',
-    '',
-    '## 校验失败原因',
-    flat.join('\n') || '（未给出具体原因）',
-    '',
-    '## 你上一轮的原始输出（仅供参考，不要原样复述）',
-    '```',
-    String(originalText || '').slice(0, 2000),
-    '```',
-    '',
-    '请严格按契约重新输出本轮演化结果 JSON。不要解释、不要复述正文，直接给出 { ... }。',
-  ].join('\n');
-}
-
 // ---------- 各角色独立快照存储（角色名册每人一份） ----------
 function charSnapDir(saveId) {
   return path.join(CHAR_SNAPS_DIR, String(saveId).replace(/[^\w-]/g, '_'));
@@ -1286,7 +1114,7 @@ app.post('/api/saves/:id/characters/snapshots', async (req, res) => {
   const saved = [];
   for (const [charId, snap] of Object.entries(snaps)) {
     const file = charSnapFile(saveId, charId);
-    stripPlayerBlockInPlace(snap);   // 主角专有块已废弃：镜像副本也不留
+    stripPlayerBlockInPlace(snap);   // 主角专有块：镜像副本也不留
     const record = {
       saveId, charId,
       snapshot: snap,
@@ -1307,7 +1135,7 @@ app.post('/api/saves/:id/characters/snapshots', async (req, res) => {
 // 按集合对齐各角色快照：以传入的 snapshots 为「全集」
 // 先删掉服务端多出来的角色文件（回滚的孤儿），再把全集写一遍。
 // 为什么需要：批量保存只增不删，而「回退 / 重新生成 / 恢复人生快照」会把存档里的角色集合
-// 缩回旧版本 —— 回滚前进化出来、回滚后已不存在的角色，其服务端副本会永久残留。
+// 缩回后 —— 回滚时进化出来、回滚后已不存在的角色，其服务端副本会永久残留。
 app.put('/api/saves/:id/characters/snapshots', (req, res) => {
   const saveId = req.params.id;
   const body = req.body || {};
@@ -1334,7 +1162,7 @@ app.put('/api/saves/:id/characters/snapshots', (req, res) => {
   const saved = [];
   for (const [charId, snap] of Object.entries(snaps)) {
     const file = charSnapFile(saveId, charId);
-    stripPlayerBlockInPlace(snap);   // 主角专有块已废弃：镜像副本也不留
+    stripPlayerBlockInPlace(snap);   // 主角专有块：镜像副本也不留
     const record = { saveId, charId, snapshot: snap, updatedAt: Date.now() };
     try {
       const existing = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : {};
@@ -1352,7 +1180,7 @@ app.get('/api/saves/:id/characters/:charId/snapshot', (req, res) => {
   if (!fs.existsSync(file)) return res.status(404).json({ error: 'not found' });
   try {
     const rec = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    // 主角专有块已废弃：镜像副本读取时顺手清掉并回写，别让它再流回客户端内存
+    // 主角专有块：镜像副本读取时顺手清掉并回写，别让它再流回客户端内存
     if (rec.snapshot && stripPlayerBlockInPlace(rec.snapshot)) {
       try { fs.writeFileSync(file, JSON.stringify(rec, null, 2), 'utf-8'); } catch {}
     }
@@ -1374,7 +1202,7 @@ app.put('/api/saves/:id/characters/:charId/snapshot', (req, res) => {
   }
   const snap = req.body?.snapshot;
   if (!snap || typeof snap !== 'object') return res.status(400).json({ error: 'snapshot 必填' });
-  stripPlayerBlockInPlace(snap);   // 主角专有块已废弃：镜像副本也不留
+  stripPlayerBlockInPlace(snap);   // 主角专有块：镜像副本也不留
   const record = {
     ...existing,
     saveId, charId,
@@ -1418,11 +1246,36 @@ app.get('/api/saves/:id/characters/snapshots', (req, res) => {
 // ---------- 静态托管（生产模式） ----------
 const distDir = path.join(__dirname, '..', 'client', 'dist');
 if (fs.existsSync(distDir)) {
+  // ===== /models 直接挂源码里的 client/public/models，**不走 dist** =====
+  // 为什么（2026-09-24 用户报「没有 3D 棋盘，模型文件 404」）：
+  //   `vite build` 会先把 dist 整个清空，再把 public 全量拷进去；本仓库 public 里有 450MB 模型，
+  //   拷贝要几十秒。这几十秒里 dist/models 是不存在的 ⇒ 正玩着的页面请求 /models/* 全是 404。
+  //   而三维场景那边会把「一个模型都没下到」缓存成整个会话的结果，于是那一页**不刷新就一直**是兜底格盘
+  //   （哪怕文件早已恢复）。public 不被构建动到，让 /models 直接读它，这个窗口就填平了。
+  // 只改 /models：它是唯一体量大到能开出窗口的目录，其余小目录的拷贝是毫秒级。
+  const publicModels = path.join(__dirname, '..', 'client', 'public', 'models');
+  if (fs.existsSync(publicModels)) app.use('/models', express.static(publicModels));
+
   // index.html 禁止强缓存：确保前端发版后浏览器总是拿到最新 JS 引用（否则会加载旧 JS 导致白屏/旧 bug）
   // 带 hash 的 assets 资源可长缓存
+  //
+  // ⚠⚠ 2026-09-23 补：`/splash/` 下的文件**没有 hash**（封面图 cover.jpg、自备字体
+  //   feibo-title.woff2/.ttf）。它们原来走 express 的默认缓存策略，而我们替换文件时
+  //   文件名不变 ⇒ 老浏览器会一直用旧的那份，出现「源码/构建都改了，玩家看到的还是旧样子」
+  //   —— 这正是「字体没生效」那次排查里最难缠的一环（我重建了 dist，玩家的页面还是旧的）。
+  //   所以：凡**未带 hash** 的静态资源，一律 no-cache（允许缓存，但每次都要回源校验）。
+  //   assets/ 下的文件名带内容 hash，内容一变名字就变，保持长缓存反而更快。
+  const NO_CACHE_DIRS = ['/splash/'];
   app.use(express.static(distDir, {
     setHeaders: (res, filePath) => {
-      if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache');
+      const p = filePath.replace(/\\/g, '/');
+      const isHashed = /\/assets\/[^/]+-[A-Za-z0-9_-]{8,}\./.test(p);
+      if (p.endsWith('index.html') || NO_CACHE_DIRS.some(d => p.includes(d))) {
+        res.setHeader('Cache-Control', 'no-cache');
+      } else if (!isHashed && /\.(?:woff2?|ttf|otf|jpg|jpeg|png|webp|gif|svg|mp3|ogg|wav)$/i.test(p)) {
+        // 其它未带 hash 的媒体/字体也一并 no-cache：它们同样会在原地被替换
+        res.setHeader('Cache-Control', 'no-cache');
+      }
     },
   }));
   app.get(/^(?!\/api\/).*/, (req, res) => {
@@ -1433,8 +1286,32 @@ if (fs.existsSync(distDir)) {
 
 const PORT = process.env.PORT || 8346;
 const HOST = process.env.HOST || '127.0.0.1';
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   srvLog(`后端已启动: http://${HOST}:${PORT}`);
   if (fs.existsSync(distDir)) srvLog('正在托管前端构建产物（生产模式）');
   else srvLog('未检测到 client/dist，仅提供 API（开发模式请另起 vite）');
+});
+
+// ---------- 端口被占时别静默崩掉 ----------
+// 为什么（2026-09-24 用户报「双击启动脚本，窗口打开之后自己就关了」）：
+//   node 的 http server 在没有 'error' 监听者时，端口冲突会抛出未捕获异常 ⇒ 进程直接退出（实测 EADDRINUSE、退出码 1）。
+//   而启动脚本的最后一行是 `node index.js`（前台阻塞）——node 一退，脚本就走完，cmd 窗口随之自动关闭，
+//   报错信息只在那不到一秒的窗口里闪一下，用户根本看不到，日志里也**一条痕迹都没有**。
+//   这里把它变成：① 写进 ai-debug.log（以后能查）；② 在窗口里用人话说明原因和怎么查占用者；
+//   ③ 以非 0 码退出，交给启动脚本决定要不要 pause 把窗口留住。
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    srvLog(`启动失败：端口 ${HOST}:${PORT} 已被占用（多半是上一次的后端还没退干净）`);
+    srvLog(`  查占用者：netstat -ano | findstr ":${PORT}" | findstr LISTENING  ← 最后一列就是 PID`);
+    srvLog(`  也可换端口启动：先设环境变量 PORT（例如 PORT=8347）再启动`);
+    console.error('');
+    console.error(`[造化玉碟] 启动失败：端口 ${PORT} 已被占用，本次没有起来。`);
+    console.error(`  占用者多半是上一次留下的后端进程。查它：netstat -ano | findstr ":${PORT}" | findstr LISTENING`);
+    console.error(`  结束它：taskkill /PID <上面查到的数字> /T /F    或换端口：set PORT=8347 后再启动`);
+    console.error('');
+  } else {
+    srvLog(`启动失败：${err && err.message}`);
+    console.error('[造化玉碟] 启动失败：', err);
+  }
+  process.exit(1);
 });

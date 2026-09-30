@@ -72,7 +72,7 @@ export function buildPostFX(renderer, scene, camera, width, height, pixelRatio) 
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(width, height),
     0.10,   // strength（2026-09-20 由 0.16 收紧 —— 辉光就是"糊"，宁可少一点）
-    0.38,   // radius（由 0.50 收紧，光晕不再糊到邻近像素上）
+    0.38,   // radius（0.50 时光晕会糊到邻近像素上）
     1.0,    // threshold（线性亮度，高于才辉光）
   );
   composer.addPass(bloom);

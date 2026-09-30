@@ -2,13 +2,13 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { api } from '../api.js';
 import { useToast, useConfirm, Spinner } from '../ui.jsx';
 import {
-  DEFAULT_BIO_TEMPLATE, DEFAULT_MEMORY_TEMPLATE, STYLE_PRESETS,
+  STYLE_PRESETS,
   PRESET_ROLE_META, presetRoleZh, reorderPresetPrompts, presetPlaceholderUsage,
 } from '../engine/promptSystem.js';
 import { createDragScroller, dropIndexFromRows } from '../engine/dragAutoScroll.js';
 import { MORTAL_PROTOCOL_META } from '../data/mortalProtocols.js';
 import { TABLE_META, serializeNumericTuning, DEFAULT_NUMERIC_TUNING } from '../data/numericTuning.js';
-import { DEFAULT_COLOR_PALETTE, normalizePalette, makeColorResolver } from '../data/colorPalette.js';
+import { DEFAULT_COLOR_PALETTE, normalizePalette, makeColorResolver, deriveDarkVariant, deriveLightVariant, contrastOnPaper, READABLE_MIN } from '../data/colorPalette.js';
 // 字体偏好：界面 / 标题 / 正文 三处分别可改。存在本机 localStorage（不进 settings.json）——
 // 字体是本机资源，跨设备同步没有意义；启动即生效也要求它不能等服务端返回。
 import { FONT_SLOTS, FONT_CHOICES, readFonts, applyFonts, customNameOf, builtinStackOf } from '../fontPrefs.js';
@@ -18,19 +18,31 @@ import {
   endpointSummary, storyEndpointOf, snapshotEndpointOf,
 } from '../data/apiEndpoints.js';
 
-// 二级导航（对应原站设置分组）
+// 二级导航（数组顺序 = 左栏从上到下的顺序）
 const SUBNAV = [
-  { id: 'display', name: '显示与字体', icon: 'ㅤ', desc: '正文字号、行距与阅读宽度' },
-  { id: 'api', name: 'API 配置', icon: 'ㅤ', desc: '接口库与正文 / 快照通道' },
-  { id: 'textRules', name: '正文规则与文风', icon: 'ㅤ', desc: '字数、文风、人称与运行时协议' },
-  { id: 'battle', name: '战斗模式', icon: 'ㅤ', desc: '程序接管：15×15 战棋、行动条与结算' },
-  { id: 'injectOrder', name: '注入顺序', icon: 'ㅤ', desc: '各区块的位置与分区，决定缓存命中率' },
-  { id: 'storyRules', name: '故事设定与数值规则', icon: 'ㅤ', desc: '快照与数值规则表' },
-  { id: 'storyPreset', name: '正文预设', icon: 'ㅤ', desc: '导入 SillyTavern 风格预设 JSON' },
-  { id: 'snapshotRules', name: '快照编辑规则', icon: 'ㅤ', desc: '导入物品管理.json 等演化预设' },
-  { id: 'bio', name: '人物生平压缩', icon: 'ㅤ', desc: '生平条目压缩模板' },
-  { id: 'memory', name: '故事记忆设置', icon: 'ㅤ', desc: '叙事记忆的生成与注入' },
+  { id: 'display', name: '显示与字体' },
+  { id: 'api', name: 'API 配置' },
+  { id: 'storyPreset', name: '正文预设' },
+  { id: 'textRules', name: '正文规则' },
+  { id: 'storyRules', name: '数值规则' },
+  { id: 'snapshotRules', name: '快照编辑规则' },
+  { id: 'memory', name: '故事记忆设置' },
+  { id: 'injectOrder', name: '注入顺序' },
+  { id: 'battle', name: '战斗模式' },
 ];
+
+// 每个分页顶部的功能介绍：一句话说清这一页管什么、点了会怎样。
+const TAB_INTRO = {
+  display: '正文的字号、行距与阅读宽度，以及界面、标题、正文各用什么字体。',
+  api: '管理 AI 接口。正文与快照两条通道各选一条，可以指向同一个站点，也可以分开。',
+  storyPreset: '导入并编辑正文预设，决定 AI 怎么写故事。启用的预设会覆盖「API 配置」里的温度和输出上限。',
+  textRules: '每回合写多少字、用什么文风、怎么称呼主角，以及附加给 AI 的运行时协议。',
+  storyRules: '境界、装备等数值以哪张表为准，以及属性越界时是否自动压回。',
+  snapshotRules: '导入并编辑快照演化规则，决定每回合哪些字段被改写。',
+  memory: 'AI 的长期记忆：每回合存一条剧情摘要，若干条摘要再浓缩成一条阶段总结；注入时近的细、远的粗。',
+  injectOrder: '发给 AI 的内容由这些区块按顺序拼成。每回合都一样的内容往前放，会变的内容往后放。',
+  battle: '战斗由程序接管，或由 AI 直接推演，两者只生效一个。',
+};
 
 const DEFAULT_FORM = () => ({
   fontSize: 16,
@@ -48,8 +60,6 @@ const DEFAULT_FORM = () => ({
   storyPresets: [], // 导入的 SillyTavern 风格预设
   evolutionRules: null,
   evolutionPresets: [],
-  bio: { threshold: 30, template: '' },
-  bioPresets: [], // 导入的生平压缩预设（类似 default.json）
   memory: { enabled: true, summaryLen: 60, keepSummaries: 40, injectSummaries: 10, recapEnabled: true, recapEvery: 10, recapLen: 150, injectRecaps: 5, keepRecaps: 10 },
   // 战斗模式：'manual' = 程序接管（AI 只报战场布置，玩家亲手打）；
   //           其它 = 关闭（AI 自己在 <think> 里推演并给 <card>）
@@ -58,7 +68,6 @@ const DEFAULT_FORM = () => ({
 
 // 系统设置：完整页面 + 二级导航（initialTab 可指定初始分页）
 // 全自动保存：改动停止 700ms 后落库；点「返回」会先等写完再离开；中途切页也有兜底写盘。
-// 不再有「保存设置」按钮。
 export default function SettingsPage({ settings, onSaved, onBack, initialTab }) {
   const [tab, setTab] = useState(initialTab || 'storyPreset');
   const [form, setForm] = useState(() => ({
@@ -155,7 +164,6 @@ export default function SettingsPage({ settings, onSaved, onBack, initialTab }) 
         {SUBNAV.map(item => (
           <button key={item.id} className={`subnav-item ${tab === item.id ? 'active' : ''}`} onClick={() => setTab(item.id)}>
             <span className="subnav-name">{item.name}</span>
-            <span className="subnav-desc">{item.desc}</span>
           </button>
         ))}
       </aside>
@@ -163,6 +171,7 @@ export default function SettingsPage({ settings, onSaved, onBack, initialTab }) 
       {/* 内容区 */}
       <div className="settings-main">
         <div className="settings-main-body">
+          {TAB_INTRO[tab] && <p className="tab-intro">{TAB_INTRO[tab]}</p>}
           {tab === 'display' && <DisplayTab form={form} set={set} />}
           {tab === 'api' && <ApiTab form={form} set={set} />}
           {tab === 'textRules' && <TextRulesTab form={form} set={set} />}
@@ -171,7 +180,6 @@ export default function SettingsPage({ settings, onSaved, onBack, initialTab }) 
           {tab === 'storyRules' && <StoryRulesTab form={form} set={set} toast={toast} />}
           {tab === 'storyPreset' && <StoryPresetTab form={form} set={set} toast={toast} saveNow={setAndSave} />}
           {tab === 'snapshotRules' && <SnapshotRulesTab form={form} set={set} toast={toast} saveNow={setAndSave} />}
-          {tab === 'bio' && <BioTab form={form} set={set} toast={toast} />}
           {tab === 'memory' && <MemoryTab form={form} set={set} />}
         </div>
 
@@ -187,26 +195,34 @@ export default function SettingsPage({ settings, onSaved, onBack, initialTab }) 
 }
 
 /* ================= 显示与字体 ================= */
+
+/* 滑动条「已选段」的宽度比例（0~1），下发给 CSS 的 --fill。
+   为什么要在 JS 里算：原生 range 的值**传不到 CSS**，而水墨滑块是"已选段满墨、
+   未选段 30% 淡墨"两层叠出来的（见 guigu.css 第 5b 节），没有这个比例就只有淡墨一段。
+   ⚠ 传的是无单位小数，CSS 那边写 `calc(var(--fill) * (100% - 20px))`；
+     别在这里拼成 "60%" 字符串 —— 那样减不掉手柄那 20px 的行程，滑块到两头会错开。 */
+function rangeFill(value, min, max) {
+  const v = Number(value), lo = Number(min), hi = Number(max);
+  if (!Number.isFinite(v) || !Number.isFinite(lo) || !Number.isFinite(hi) || hi === lo) return 0;
+  return Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+}
+
 function DisplayTab({ form, set }) {
   return (
     <div className="section" style={{ maxWidth: 'none' }}>
-      <h3>显示与字体</h3>
       <div className="field">
         <label>正文字号：{form.fontSize}px</label>
-        <input type="range" min="14" max="24" value={form.fontSize} onChange={e => set('fontSize', Number(e.target.value))} style={{ width: '100%' }} />
-        <div className="hint">故事正文与旁白的显示字号。</div>
+        <input type="range" min="14" max="24" value={form.fontSize} onChange={e => set('fontSize', Number(e.target.value))} style={{ width: '100%', '--fill': rangeFill(form.fontSize, 14, 24) }} />
       </div>
       <div className="field">
         <label>正文行距：{Number(form.lineHeight || 1.95).toFixed(2)}</label>
-        <input type="range" min="1.4" max="2.8" step="0.05" value={form.lineHeight || 1.95} onChange={e => set('lineHeight', Number(e.target.value))} style={{ width: '100%' }} />
-        <div className="hint">行间距倍数，与字号一起决定阅读疏密。</div>
+        <input type="range" min="1.4" max="2.8" step="0.05" value={form.lineHeight || 1.95} onChange={e => set('lineHeight', Number(e.target.value))} style={{ width: '100%', '--fill': rangeFill(form.lineHeight || 1.95, 1.4, 2.8) }} />
       </div>
 
       <FontSection fontSize={form.fontSize} lineHeight={form.lineHeight || 1.95} />
 
       <div className="field">
         <label>阅读宽度：标准 720px</label>
-        <div className="hint">正文栏居中显示并固定宽度。</div>
       </div>
     </div>
   );
@@ -334,7 +350,7 @@ function AIConfigFields({ cfg, onPatch }) {
       <div className="field">
         <label>接口地址 <span className="lbl-note">OpenAI 兼容，填到 /v1 即可</span></label>
         <input type="text" value={cfg.baseUrl} onChange={e => setK('baseUrl', e.target.value)} placeholder="https://example.com/v1" />
-        <div className="hint">填站点根地址即可，生成与模型列表路径自动拼接。</div>
+        <div className="hint">填站点根地址即可。</div>
       </div>
       <div className="field">
         <label>API Key</label>
@@ -355,7 +371,7 @@ function AIConfigFields({ cfg, onPatch }) {
       </div>
       <div className="field">
         <label>温度（随机性）：{Number(cfg.temperature ?? 0.9).toFixed(1)}</label>
-        <input type="range" min="0" max="1.5" step="0.1" value={cfg.temperature ?? 0.9} onChange={e => setK('temperature', Number(e.target.value))} style={{ width: '100%' }} />
+        <input type="range" min="0" max="1.5" step="0.1" value={cfg.temperature ?? 0.9} onChange={e => setK('temperature', Number(e.target.value))} style={{ width: '100%', '--fill': rangeFill(cfg.temperature ?? 0.9, 0, 1.5) }} />
         <div className="hint">低温度更稳定克制，高温度更有想象力。正文建议 0.7 - 1.0；快照演化建议 0.2 - 0.5，要求输出严格 JSON，越低越稳。</div>
       </div>
       <div className="btn-row">
@@ -410,10 +426,6 @@ function ApiTab({ form, set }) {
   return (
     <div className="section" style={{ maxWidth: 'none' }}>
       <h3>接口库</h3>
-      <div className="hint" style={{ marginBottom: 10 }}>
-        这里保存的接口供「正文」与「快照」两个通道各自选用。改动自动落盘、所有存档共用；
-        只存在本机 settings.json，不会外传。点卡片标题展开编辑。
-      </div>
 
       {!list.length && (
         <div className="ep-empty">接口库还是空的。点「新增接口」加一条 OpenAI 兼容地址，例如 https://example.com/v1。</div>
@@ -487,7 +499,7 @@ function ApiTab({ form, set }) {
         <input type="number" min="0" step="1024" value={form.storyMaxTokens ?? 32768}
           onChange={e => set('storyMaxTokens', Math.max(0, Math.floor(Number(e.target.value) || 0)))} />
         <div className="hint">
-          每回合正文生成的输出预算硬顶。推理模型如 gemini-3-flash 的思考过程也计入此预算。若正文常被截断，写到一半戛然而止、没有结尾选项，请调大此值；设为 0 表示不限制。截断发生时会自动提高预算重试一次。
+          每回合正文生成的输出预算硬顶。推理模型的思考过程也计入此预算。若正文常被截断，写到一半戛然而止、没有结尾选项，请调大此值；设为 0 表示不限制。
         </div>
       </div>
     </div>
@@ -539,7 +551,6 @@ function TextRulesTab({ form, set }) {
           <span>至</span>
           <input type="number" min="100" max="3000" value={tr.maxWords} onChange={e => setTR({ maxWords: Number(e.target.value) || 400 })} />
         </div>
-        <div className="hint">AI 会按此字数区间控制正文篇幅。</div>
       </div>
 
       <h3 style={{ marginTop: 24 }}>文风</h3>
@@ -570,7 +581,6 @@ function TextRulesTab({ form, set }) {
               onClick={() => set('story', prev => ({ ...(prev || {}), narrativePerson: o.v }))}>{o.t}</button>
           ))}
         </div>
-        <div className="hint">决定正文如何称呼主角。</div>
       </div>
 
       <h3 style={{ marginTop: 24 }}>正文着色词表</h3>
@@ -580,7 +590,7 @@ function TextRulesTab({ form, set }) {
       <div className="field">
         <div className="hint" style={{ marginBottom: 8 }}>
           前五份协议每轮注入正文提示词；最后一份「战后叙事协议」只在<b>战斗打完、补写正文</b>那一次注入。
-          留空使用内置默认；编辑后以自定义文本为准（高于预设中的旧描述）。支持运行时占位符：{'${current_time} ${current_location} ${season} ${weather} ${time_format_rule} ${time_format_example}'}。
+          留空使用内置默认；编辑后以自定义文本为准。支持运行时占位符：{'${current_time} ${current_location} ${season} ${weather} ${time_format_rule} ${time_format_example}'}。
           <br />
           战后叙事协议另外支持：{'${proseNumbers}'} 会展开成上面那份「正文数值约束」（改一处、两处生效，不用抄两份）；
           {'${battleWords} ${battleWordsFloor} ${battleWordsMax}'} 会展开成当前字数区间算出的目标 / 下限 / 上限字数。
@@ -608,6 +618,10 @@ function ColorPaletteSection({ form, set }) {
   const raw = form.textRules?.colorPalette;
   const cp = useMemo(() => normalizePalette(raw), [raw]);
   const resolver = useMemo(() => makeColorResolver(cp), [cp]);
+  /* 预览区那两个「画出来的」主题底：显式锁死 light=true/false，
+     否则两个都会跟着当前主题走，并排就失去意义了。 */
+  const resolverLight = useMemo(() => makeColorResolver(cp, { light: true }), [cp]);
+  const resolverDark = useMemo(() => makeColorResolver(cp, { light: false }), [cp]);
   const [probe, setProbe] = useState('');
   const strict = cp.mode === 'strict';
   const probeOk = probe.trim() ? resolver.resolve(probe) : '';
@@ -615,9 +629,33 @@ function ColorPaletteSection({ form, set }) {
     ...(prev || {}),
     colorPalette: { ...normalizePalette(prev?.colorPalette), ...patch },
   }));
-  const patchRow = (i, patch) => setCP({ list: cp.list.map((e, k) => (k === i ? { ...e, ...patch } : e)) });
+  const patchRow = (i, patch) => setCP({
+    list: cp.list.map((e, k) => {
+      if (k !== i) return e;
+      const next = { ...e, ...patch };
+      /* ⚠ 玩家一改色值，就必须把 valueDark / valueLight 都清空 —— 那是**上一个颜色的**
+         对应主题版本，留着会串色（比如把赭褐改成红色，浓墨下却还显示赭褐的提亮值）。
+         清空后 pickThemedValue 会按新色值现场推导，永远跟着走。
+         内置那 8 条也走这条路：玩家动过就变自定义，不再吃内置硬编码值。 */
+      if ('value' in patch && patch.value !== e.value) { delete next.valueDark; delete next.valueLight; }
+      return next;
+    }),
+  });
   const removeRow = (i) => setCP({ list: cp.list.filter((_, k) => k !== i) });
   const addRow = () => setCP({ list: [...cp.list, { name: '', value: '#7A5A2E', desc: '' }] });
+  /* 这一行在两套主题下各会显示成什么色。与运行时**同一个算法**
+     （deriveDarkVariant / deriveLightVariant），所以这里看到的跟游戏正文里
+     实际渲染出来的必然一致，不是另写一套近似。 */
+  const darkOf = (e) => {
+    const vd = String(e.valueDark || '').trim();
+    if (vd) return vd;
+    return deriveDarkVariant(e.value) || e.value;
+  };
+  const lightOf = (e) => {
+    const vl = String(e.valueLight || '').trim();
+    if (vl) return vl;
+    return deriveLightVariant(e.value) || e.value;
+  };
 
   return (
     <div className="field">
@@ -632,12 +670,22 @@ function ColorPaletteSection({ form, set }) {
         ① 渲染时丢弃词表外的颜色，对应段落回退默认字色；② 词表随正文提示词一起下发，让 AI 只用这里的颜色。
         未命中判定忽略大小写，<code>#6B4E9E</code> 与 <code>rgb(107, 78, 158)</code> 视为同色；词表为空时限制不生效。
       </div>
+      {/* ⚠ 这段是给玩家看的「为什么会自动变」解释。不写清楚的话，玩家发现
+          自己的颜色跟填的不一样，会以为坏了。 */}
+      <div className="hint" style={{ marginBottom: 10 }}>
+        你填的是<b>心里那个色</b>。两种主题的底色深浅差很多，同一个色放在上面未必都看得清，
+        所以游戏会按当前主题<b>只调明暗、不动色相</b>，让它刚好看得清——
+        浓墨底上提亮一点，淡墨底上压暗一点。右边两栏就是调完的样子，两套主题各用各的，
+        你不用填两遍。
+      </div>
 
       {cp.list.length > 0 && (
         <div className="cp-head">
           <span className="cp-h-label">色名</span>
           <span className="cp-h-val">色值</span>
           <span className="cp-h-desc">用途提示 · 写进提示词，可留空</span>
+          <span className="cp-h-fix">淡墨下</span>
+          <span className="cp-h-fix">浓墨下</span>
         </div>
       )}
       {cp.list.map((e, i) => (
@@ -648,6 +696,16 @@ function ColorPaletteSection({ form, set }) {
             onChange={ev => patchRow(i, { value: ev.target.value.toUpperCase() })} title="取色板" />
           <input className="cp-val" value={e.value} placeholder="#RRGGBB" onChange={ev => patchRow(i, { value: ev.target.value })} />
           <input className="cp-desc" value={e.desc} placeholder="如 灵石、法宝、机缘" onChange={ev => patchRow(i, { desc: ev.target.value })} />
+          {/* 两套主题各会显示成什么：只读小样。值由同一个推导算法给出，玩家不用管。
+              用 cp-fix 这个 class 是为了让它跟可编辑的输入框在视觉上分开（不是输入框）。 */}
+          <span className="cp-fix" title="淡墨主题下这个颜色会自动压暗一些，保证在浅色纸上看得清">
+            <i style={{ background: lightOf(e) }} />
+            {lightOf(e)}
+          </span>
+          <span className="cp-fix" title="浓墨主题下这个颜色会自动调亮一些，保证在深色底上看得清">
+            <i style={{ background: darkOf(e) }} />
+            {darkOf(e)}
+          </span>
           <button className="ghost small cp-del" onClick={() => removeRow(i)} title="删除该颜色">删</button>
         </div>
       ))}
@@ -663,13 +721,44 @@ function ColorPaletteSection({ form, set }) {
 
       <details className="cp-preview-box" open>
         <summary>颜色预览与试色</summary>
-        <div className="cp-preview">
-          {cp.list.length === 0 && <span className="hint" style={{ margin: 0 }}>词表为空</span>}
-          {cp.list.map((e, i) => (
-            <span key={i} style={{ color: resolver.resolve(e.value) || 'var(--text)' }}>
-              {e.name ? `${e.name}：` : ''}灵气流转，山雾未散。
-            </span>
-          ))}
+        {/* 预览做成**两种主题并排**：玩家改完色能立刻看到它在浓墨/淡墨下各长什么样，
+            不用来回切主题试。之所以要显式传 light 给 resolver，就是因为这儿的底色
+            是画上去的（false/true 两块），不是跟着当前主题走的。 */}
+        <div className="cp-preview-duo">
+          <div className="cp-card cp-card--light">
+            <div className="cp-card-title">淡墨（宣纸底）</div>
+            {cp.list.length === 0 && <span className="hint" style={{ margin: 0 }}>词表为空</span>}
+            {cp.list.map((e, i) => {
+              const c = resolverLight.resolve(e.value) || '';
+              const cr = contrastOnPaper(c || e.value, true);
+              // 偏弱的标出来：不替玩家改色，但让他知道这个色在浅纸上读起来吃力
+              return (
+                <div key={i} className="cp-demo-line" style={{ color: c || '#555' }}>
+                  {e.name ? `${e.name}：` : ''}灵气流转，山雾未散。
+                  {cr > 0 && cr < READABLE_MIN && <em className="cp-weak">{cr}:1 偏弱</em>}
+                </div>
+              );
+            })}
+          </div>
+          <div className="cp-card cp-card--dark">
+            <div className="cp-card-title">浓墨（深青底）</div>
+            {cp.list.length === 0 && <span className="hint" style={{ margin: 0 }}>词表为空</span>}
+            {cp.list.map((e, i) => {
+              const c = resolverDark.resolve(e.value) || '';
+              const cr = contrastOnPaper(c || e.value, false);
+              return (
+                <div key={i} className="cp-demo-line" style={{ color: c || '#aaa' }}>
+                  {e.name ? `${e.name}：` : ''}灵气流转，山雾未散。
+                  {cr > 0 && cr < READABLE_MIN && <em className="cp-weak">{cr}:1 偏弱</em>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="hint" style={{ marginTop: 4 }}>
+          标「偏弱」的是在该主题底色上对比度不足 {READABLE_MIN}:1 的色 —— 仍会照常显示，只是读起来吃力。
+          浓墨栏偏弱说明这个色太亮，淡墨栏偏弱说明这个色偏浅，自己调一下就好。
+          这里只提示，不会改你填的值。
         </div>
         <div className="cp-probe">
           <span className="hint" style={{ margin: 0 }}>试色：</span>
@@ -698,17 +787,6 @@ function InjectOrderTab({ form, set }) {
 
   return (
     <div>
-      <h3 style={{ marginTop: 0 }}>注入顺序</h3>
-      <p className="hint">
-        每次请求发给 AI 的内容由若干区块拼成。把「逐回合不变」的区块往前放、把「逐回合变化」的往后放，
-        不变的部分就能连成一段前缀被接口缓存命中，省下重复计费的输入 token。
-        <br />
-        三个分区之外，还要留意：<b>恒定基座里任何一动都会让后面的缓存全部失效</b>，所以拿不准的区块建议放在变化区。
-        <br />
-        预设里角色为 <b>user</b> / <b>assistant</b> 或 SillyTavern 写法 <b>model</b> 的段落<b>不参与本排序</b>：
-        它们各自独立成一条消息，按原顺序附在 system 之后；只有 <b>system</b> 段会被合并进来接受排序。
-      </p>
-
       <div className="io-grid">
         {LAYOUT_ZONES.map((zone, zi) => {
           const items = itemsOf(zone.id);
@@ -744,13 +822,15 @@ function InjectOrderTab({ form, set }) {
       <div className="io-foot">
         <button className="ghost" onClick={() => set('promptLayout', null)}>恢复默认顺序</button>
         <span className="hint">
-          默认顺序：恒定基座 = `预设静态段 → 世界书恒定条目 → 静态协议 → 数值表 → 着色词表`，
-          变化区 = `预设动态段 → 叙事记忆 → 世界书命中 → 当前时空 → 最近剧情`。
+          默认顺序 · 恒定基座：预设静态段 → 世界书恒定条目 → 静态协议 → 数值表 → 着色词表；
+          变化区：预设动态段 → 叙事记忆 → 世界书命中 → 当前时空 → 最近剧情。
         </span>
       </div>
       <p className="hint">
         「{lockedItems.map(x => layoutBlockMeta(x.id)?.name).join('、')}」由消息角色决定，固定排在最后，不参与调整；
-        「预设 · 静态段 / 动态段」由运行时自动判定——同一条预设段若引用了会随回合变化的占位符，就归入动态段。
+        「预设 · 静态段 / 动态段」由程序自动分派——同一条预设段若引用了会随回合变化的占位符，就归入动态段。
+        <br />
+        恒定基座里挪动任何一块，它后面整段都要重算，拿不准就放变化区。
       </p>
     </div>
   );
@@ -790,19 +870,10 @@ function ProtocolEditor({ meta, value, onChange, active = true }) {
   );
 }
 
-/* ================= 故事设定与数值规则 ================= */
+/* ================= 数值规则 ================= */
 function StoryRulesTab({ form, set, toast }) {
-  const st = form.story || {};
-  const setST = (patch) => set('story', prev => ({ ...(prev || {}), ...patch }));
   return (
     <div className="section" style={{ maxWidth: 'none' }}>
-      <h3>快照</h3>
-      <div className="field">
-        <label>每 N 回合自动创建人生快照 <span className="lbl-note">0 = 关闭</span></label>
-        <input type="number" min="0" max="100" value={st.autoSnapshotEvery ?? 10} onChange={e => setST({ autoSnapshotEvery: Number(e.target.value) || 0 })} style={{ width: 140 }} />
-        <div className="hint">回合收尾时自动落库一份快照；也可在「快照」页手动创建与恢复。</div>
-      </div>
-
       <NumericTuningSection form={form} set={set} toast={toast} />
     </div>
   );
@@ -834,7 +905,7 @@ function NumericTuningSection({ form, set, toast }) {
 
   return (
     <>
-      <h3 style={{ marginTop: 24 }}>数值规则表 · Mortal 数值体系</h3>
+      <h3 style={{ marginTop: 0 }}>数值规则表 · Mortal 数值体系</h3>
       <div className="field">
         <div className="btn-row" style={{ marginBottom: 8 }}>
           <button className={enabled ? 'primary' : ''} onClick={() => setNT({ enabled: !enabled })}>{enabled ? '已启用注入' : '已停用注入'}</button>
@@ -844,18 +915,16 @@ function NumericTuningSection({ form, set, toast }) {
           <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={importFile} />
         </div>
         <div className="hint">
-          作为境界基准、装备品阶两项数值的唯一判定基准 · 共 {Object.keys(TABLE_META).length} 张表。
-          未配置时使用内置数值表。
+          境界基准、装备品阶等数值以这 {Object.keys(TABLE_META).length} 张表为准；未配置时用内置表。
         </div>
         <div className="hint" style={{ marginTop: 4 }}>
-          强制校界开启时，每回合快照演化与手动保存快照都会拿<b>境界基准表</b>对照人物属性：上限值超过该境界 <code>xxUpper</code> 或低于 <code>xxBase</code> 一律写回边界，当前值只压不抬
-          ，受伤/耗蓝不会被抬满。改动幅度会以提示条报出。
+          强制校界：每次演化或手动保存快照，都把人物属性压回本境界的上下限之内——<b>只压不抬</b>，受伤和耗蓝不会被补满。改动幅度以提示条报出。
         </div>
         <div className="hint" style={{ marginTop: 4 }}>
-          逐表改数值请用游戏内左侧导航的<b>「数值表」页</b>：可逐张表直编、恢复本表默认、导入导出，并可一键「立即校验人物属性」查看修正报告。
+          要逐表改数值，用左侧导航的<b>「数值表」页</b>：可逐张直编、恢复默认、导入导出，并一键校验人物属性。
         </div>
         <details style={{ marginTop: 8 }}>
-          <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--gold-dim)' }}>逐表启停 · 不勾选的表不注入，可控制提示词体积</summary>
+          <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--gold-dim)' }}>逐表启停 · 不勾选的表不注入</summary>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '2px 12px', marginTop: 6, fontSize: 12 }}>
             {Object.entries(TABLE_META).map(([key, meta]) => (
               <label key={key} style={{ display: 'flex', gap: 6, alignItems: 'center', color: disabled.has(key) ? 'var(--text-faint)' : 'var(--text)' }}>
@@ -1216,10 +1285,33 @@ function StoryPresetTab({ form, set, toast, saveNow }) {
                   }}
                 >
                   <span className="sp-grip" title="按住拖动调整顺序" aria-hidden="true">⠿</span>
+                  {/* 段启停开关：常驻在段行左侧，点一下即开闭，不用先展开这一段。
+                      两处刻意的写法，改之前先看清楚：
+                      ① 用 span + role="switch"（跟「世界因子」那套开关同源），**不用 button** ——
+                         guigu 换肤给所有 button 铺了「牌面」（button:not(.ghost):not(.tabs)…，权重 (0,4,1)），
+                         药丸开关会被压成方牌。span 不受那套影响，外观完全由 .sp-seg-switch 决定。
+                      ② onPointerDown 必须 stopPropagation：拖动排序的监听挂在**整行**上
+                         （beginPtrDrag 只认 button/.sp-prompt-body 就先返回），
+                         不拦住就会把「点开关」当成「按下并开始拖动」，开关反而按不动。 */}
+                  <span
+                    className="sp-seg-switch"
+                    role="switch"
+                    aria-checked={enabled}
+                    tabIndex={0}
+                    title={enabled ? '点击停用本段（不必展开）' : '点击启用本段（不必展开）'}
+                    aria-label={`${enabled ? '停用' : '启用'}段落 ${p.name || p.identifier || i + 1}`}
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => { e.stopPropagation(); toggleSegment(preset.id, i); }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault(); e.stopPropagation();
+                        toggleSegment(preset.id, i);
+                      }
+                    }}
+                  />
                   <span className="sp-toggle" aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
                   <span className="sp-prompt-name">{p.name || p.identifier || `段 ${i + 1}`}</span>
                   <span className="tag">{p.role || 'system'}</span>
-                  {enabled ? <span className="tag ok">启用</span> : <span className="tag">停用</span>}
                   {content && <span className="sp-prompt-preview">{content.slice(0, 80)}{content.length > 80 ? '…' : ''}</span>}
                 </div>
                 {isOpen && (
@@ -1255,7 +1347,6 @@ function StoryPresetTab({ form, set, toast, saveNow }) {
                         <button className="small" onClick={() => reorderPrompt(preset.id, i, 0)} disabled={i === 0} title="移到最前">⤒ 置顶</button>
                         <button className="small" onClick={() => reorderPrompt(preset.id, i, prompts.length - 1)} disabled={i === prompts.length - 1} title="移到最后">⤓ 置底</button>
                         <button className="small" onClick={() => setSegEdit({ presetId: preset.id, index: i, draft: { name: p.name || '', role: p.role || 'system', content } })}>编辑</button>
-                        <button className="small" onClick={() => toggleSegment(preset.id, i)}>{enabled ? '停用此段' : '启用此段'}</button>
                         <button className="small danger" onClick={() => deleteSegment(preset.id, i)}>删除段</button>
                       </div>
                     </>
@@ -1272,14 +1363,6 @@ function StoryPresetTab({ form, set, toast, saveNow }) {
 
   return (
     <div className="section sp-section">
-      <div className="section-head-row">
-        <h3>正文预设</h3>
-        <span className="hint" style={{ margin: 0 }}>导入 SillyTavern 风格 JSON，AI 据此与用户交流</span>
-      </div>
-      <div className="hint" style={{ marginBottom: 12 }}>
-        启用的预设会覆盖「API 配置」里的温度与 max_tokens，并按预设提示词段顺序注入。
-      </div>
-
       <div className="btn-row" style={{ marginBottom: 12 }}>
         <label className="small primary file-btn">＋ 导入预设 JSON<input type="file" accept=".json" onChange={importPresetFile} hidden /></label>
       </div>
@@ -1287,7 +1370,7 @@ function StoryPresetTab({ form, set, toast, saveNow }) {
       {presets.length === 0 ? (
         <div className="empty-tip" style={{ padding: '24px 0' }}>
           暂无正文预设<br />
-          <span className="hint">导入类似「【凡人预设】青竹 - v2.0.json」的 SillyTavern 风格预设文件</span>
+          <span className="hint">导入预设文件</span>
         </div>
       ) : (
         <div className="sp-list">
@@ -1353,7 +1436,7 @@ function StoryPresetTab({ form, set, toast, saveNow }) {
         <br />
         直接<b>拖动段落</b>（或点段内 ↑↓ / ⤒⤓）即可调整先后顺序，改完立即保存。
         <br />
-        拖动时滚轮会被浏览器吞掉，所以把段落拖到列表<b>上/下边缘</b>即会自动滚动，可以一直拖到列表任意位置；
+        把段落拖到列表<b>上/下边缘</b>即会自动滚动，可以一直拖到列表任意位置；
         跨很远的位置也可以直接用段内的 <b>⤒ 置顶</b> / <b>⤓ 置底</b>。
       </div>
     </div>
@@ -1498,13 +1581,8 @@ function SnapshotRulesTab({ form, set, toast, saveNow }) {
   return (
     <div className="section" style={{ maxWidth: 'none' }}>
       <div className="section-head-row">
-        <h3>导入预设 · 推荐</h3>
-        <span className="hint" style={{ margin: 0 }}>支持「完整版-物品管理.json」等预设文件</span>
+        <h3>导入预设</h3>
       </div>
-      <div className="hint" style={{ marginBottom: 8 }}>
-        导入的预设会作为快照演化阶段的最高指导注入 AI；规则越完整，演化越稳定。
-      </div>
-
       <div className="btn-row" style={{ marginBottom: 12 }}>
         <label className="small primary file-btn">＋ 导入预设 JSON<input type="file" accept=".json" onChange={importPresetFile} hidden /></label>
       </div>
@@ -1512,7 +1590,7 @@ function SnapshotRulesTab({ form, set, toast, saveNow }) {
       {presets.length === 0 ? (
         <div className="empty-tip" style={{ padding: '16px 0' }}>
           暂无导入预设<br />
-          <span className="hint">点击上方按钮，选择类似「完整版-物品管理.json」的预设文件</span>
+          <span className="hint">点击上方按钮，选择的预设文件</span>
         </div>
       ) : (
         <div className="preset-import-list">
@@ -1564,156 +1642,6 @@ function SnapshotRulesTab({ form, set, toast, saveNow }) {
   );
 }
 
-/* ================= 人物生平压缩（支持导入 default.json 预设，折叠式） ================= */
-function BioTab({ form, set, toast }) {
-  const bio = form.bio || {};
-  const setBio = (patch) => set('bio', prev => ({ ...(prev || {}), ...patch }));
-  const presets = form.bioPresets || [];
-  const setPresets = (list) => set('bioPresets', list);
-  const [openId, setOpenId] = useState(null);
-  const [editingTemplate, setEditingTemplate] = useState(null); // 编辑中的模板字符串
-
-  const importPresetFile = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const obj = JSON.parse(reader.result);
-        if (!obj || typeof obj !== 'object') throw new Error('根必须为对象');
-        // 兼容 default.json 格式：{ id, name, version, bioCompressionTemplate }
-        if (!obj.bioCompressionTemplate && !obj.template) {
-          throw new Error('未找到 bioCompressionTemplate 字段，可能不是生平压缩预设');
-        }
-        const preset = {
-          id: 'bp_' + Date.now().toString(36),
-          name: obj.name || f.name.replace(/\.json$/i, ''),
-          version: obj.version || 1,
-          updatedAt: obj.updatedAt || '',
-          template: obj.bioCompressionTemplate || obj.template,
-          enabled: presets.length === 0,
-          importedAt: Date.now(),
-        };
-        setPresets([...presets, preset]);
-        setOpenId(preset.id);
-        // 第一个导入的默认写入 bio.template 作为当前使用模板
-        if (presets.length === 0) setBio({ template: preset.template });
-        toast?.('ok', `预设「${preset.name}」已导入`);
-      } catch (err) {
-        toast?.('err', '导入失败：' + err.message);
-      }
-    };
-    reader.readAsText(f);
-    e.target.value = '';
-  };
-
-  const exportPreset = (preset) => {
-    const out = {
-      id: preset.id,
-      name: preset.name,
-      version: preset.version,
-      updatedAt: preset.updatedAt || new Date().toISOString().slice(0, 10),
-      bioCompressionTemplate: preset.template,
-    };
-    const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${preset.name || '生平压缩预设'}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
-
-  const enablePreset = (preset) => {
-    const next = presets.map(p => ({ ...p, enabled: p.id === preset.id ? !p.enabled : false }));
-    setPresets(next);
-    const active = next.find(p => p.enabled);
-    if (active) {
-      setBio({ template: active.template });
-      toast('ok', `已启用「${active.name}」并加载其压缩模板`);
-    } else {
-      toast('ok', `已停用「${preset.name}」`);
-    }
-  };
-  const removePreset = (id) => {
-    const p = presets.find(x => x.id === id);
-    setPresets(presets.filter(p => p.id !== id));
-    if (openId === id) setOpenId(null);
-    toast('ok', `已删除「${p?.name}」`);
-  };
-
-  return (
-    <div className="section sp-section">
-      <div className="section-head-row">
-        <h3>人物生平压缩预设</h3>
-        <span className="hint" style={{ margin: 0 }}>导入 default.json 等生平压缩预设</span>
-      </div>
-      <div className="hint" style={{ marginBottom: 12 }}>
-        导入的预设自带压缩模板，AI 压缩角色生平与记忆时严格遵循该模板。启用的模板会写入下方编辑区。
-      </div>
-
-      <div className="btn-row" style={{ marginBottom: 12 }}>
-        <label className="small primary file-btn">＋ 导入压缩预设 JSON<input type="file" accept=".json" onChange={importPresetFile} hidden /></label>
-      </div>
-
-      {presets.length === 0 ? (
-        <div className="empty-tip" style={{ padding: '24px 0' }}>
-          暂无压缩预设<br />
-          <span className="hint">导入类似「default.json」的生平压缩预设文件</span>
-        </div>
-      ) : (
-        <div className="sp-list">
-          {presets.map(p => {
-            const isOpen = openId === p.id;
-            return (
-              <div className={`sp-accordion ${p.enabled ? 'active' : ''} ${isOpen ? 'open' : ''}`} key={p.id}>
-                <button className="sp-accordion-head" onClick={() => setOpenId(isOpen ? null : p.id)} aria-expanded={isOpen}>
-                  <span className="sp-toggle" aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
-                  <span className="sp-accordion-name">{p.name}</span>
-                  {p.enabled && <span className="tag ok">已启用</span>}
-                  {p.version && <span className="tag">v{p.version}</span>}
-                  {p.updatedAt && <span className="tag">{p.updatedAt}</span>}
-                  <span className="spacer" />
-                </button>
-                <div className="sp-accordion-actions" onClick={e => e.stopPropagation()}>
-                  <button className={`small ${p.enabled ? 'primary' : ''}`} onClick={() => enablePreset(p)}>{p.enabled ? '停用' : '启用并加载模板'}</button>
-                  <button className="small" onClick={() => exportPreset(p)}>导出</button>
-                  <button className="small danger" onClick={() => removePreset(p.id)}>删除</button>
-                </div>
-                {isOpen && (
-                  <div className="sp-accordion-body">
-                    <div className="section-head-row" style={{ marginBottom: 8 }}>
-                      <h4 style={{ margin: 0 }}>压缩模板</h4>
-                      <span className="hint" style={{ margin: 0 }}>占位符 ${'{characters_payload}'} = 待压缩的角色载荷</span>
-                    </div>
-                    <pre className="sp-raw-view">{p.template}</pre>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="section-head-row" style={{ marginTop: 20 }}>
-        <h3>当前使用模板</h3>
-        <span className="hint" style={{ margin: 0 }}>可直接编辑；失焦后自动保存并生效</span>
-      </div>
-      <textarea
-        className="preset-content-input"
-        style={{ minHeight: 220 }}
-        value={editingTemplate ?? bio.template ?? DEFAULT_BIO_TEMPLATE}
-        onChange={e => setEditingTemplate(e.target.value)}
-        onBlur={() => { if (editingTemplate != null) { setBio({ template: editingTemplate }); setEditingTemplate(null); } }}
-      />
-      <div className="field" style={{ marginTop: 16 }}>
-        <label>生平条目超过 N 条时触发压缩</label>
-        <input type="number" min="5" max="200" value={bio.threshold ?? 30} onChange={e => setBio({ threshold: Number(e.target.value) || 30 })} style={{ width: 140 }} />
-        <div className="hint">每回合记录一条主角生平；超过阈值后压缩为摘要。</div>
-      </div>
-    </div>
-  );
-}
-
 /* ================= 故事记忆设置 ================= */
 function MemoryTab({ form, set }) {
   const mem = form.memory || {};
@@ -1729,12 +1657,6 @@ function MemoryTab({ form, set }) {
   return (
     <div className="section" style={{ maxWidth: 'none' }}>
       <h3>叙事记忆 · 回合摘要 + 阶段总结</h3>
-      <div className="hint" style={{ marginBottom: 12, lineHeight: 1.7 }}>
-        本模块配置 AI 的长期剧情记忆：每回合正文结束后，AI 自动把当回合剧情压缩成一条<b>回合摘要</b>；
-        每积累 N 条摘要，再自动浓缩成一条<b>阶段总结</b>，覆盖这 N 个回合的脉络。
-        注入提示词时按「最近几条阶段总结（更早剧情脉络）+ 最近几条回合摘要（近期细节）」<b>近细远粗</b>地组织，
-        让 AI 记得几十回合前的关键剧情。记忆生成不阻塞回合流程。
-      </div>
       <div className="field">
         <label>启用叙事记忆</label>
         <div className="btn-row">
@@ -1765,8 +1687,8 @@ function MemoryTab({ form, set }) {
 }
 
 /* ================= 战斗模式 ================= */
-// 这里只有两个开关：谁来决定战斗、以及「保底血量」这道安全线。
-// 开启后：AI 不再自己推演战斗，只在正文里输出 <battle> 布置指令（谁打谁、在哪里打、什么地形）；
+// 这里只有一个开关：谁来决定战斗。
+// 开启后：AI 不自己推演战斗，只在正文里输出 <battle> 布置指令（谁打谁、在哪里打、什么地形）；
 //         程序按角色快照建 15×15 战场，行动顺序与伤害全部由程序算，轮到主角时由玩家亲手操作。
 function BattleTab({ form, set }) {
   const b = form.battle || {};
@@ -1775,11 +1697,6 @@ function BattleTab({ form, set }) {
 
   return (
     <div className="section" style={{ maxWidth: 'none' }}>
-      <h3>战斗模式</h3>
-      <div className="hint" style={{ marginBottom: 12, lineHeight: 1.75 }}>
-        项目里关于战斗的一切都由这一个开关决定，两套流程互斥，不会同时生效。
-      </div>
-
       <div className="field">
         <label>程序接管战斗</label>
         <div className="btn-row">
@@ -1792,15 +1709,7 @@ function BattleTab({ form, set }) {
           移动范围按脚力算，伤害＝「功法威力（由品阶定死，每高一品强两成）× 掷骰子掷出来的运气 × 双方攻防」，
           胜负由程序裁定；轮到主角时<b>由你亲手出招</b>，
           打完把战报交回 AI，由它写过程与结局。<br />
-          <b>关闭</b>：维持原来的做法——AI 在思考里自行推演战斗，直接给结果，玩家不参与（当前默认）。
-        </div>
-      </div>
-
-      <div className="field">
-        <label>气血归零才退场</label>
-        <div className="hint" style={{ lineHeight: 1.8 }}>
-          已取消「保底血量」机制：无论寻常交手还是死斗，气血都可一路扣到 <b>0</b>，归零即退出战斗；
-          角色是死是伤，由战后 AI 叙事描写（死斗则直接判死亡）。不再有「打到两成血线就停手」的安全线。
+          <b>关闭</b>：AI 在思考里自行推演战斗，直接给结果，玩家不参与（当前默认）。
         </div>
       </div>
 
@@ -1815,9 +1724,7 @@ function BattleTab({ form, set }) {
 
       <h3 style={{ marginTop: 24 }}>对手由谁指挥</h3>
       <div className="hint" style={{ lineHeight: 1.9 }}>
-        对手的每一步由程序枚举全部合法走法与招式，按真实公式估收益后取最优——快、免费、不会算错。
-        AI 负责的是它在场上的性格与目标（写在其人物快照里），不负责逐个数字。这样同一场战斗打得快、结果可信，
-        也不会因为网络卡住而停在半路。
+        对手由程序指挥，每步都会挑当前最有利的一招；它的脾气和打算，写在它的人物快照里。
       </div>
     </div>
   );

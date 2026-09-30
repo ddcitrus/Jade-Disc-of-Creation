@@ -67,7 +67,7 @@ export default function ConstraintsPage({ settings, onSettingsChange }) {
       <div className="section" style={{ maxWidth: 900 }}>
         <h3>写给 AI 的额外要求</h3>
         <p className="hint">
-          这里的内容会接在所有提示词之后，是模型开写之前最后读到的部分，越靠后越容易被遵守。
+          这里的内容排在所有提示词之后，越靠后越容易被遵守。
           想加规则不必改别处的设置，写在这里就行。
         </p>
         <div className="field">

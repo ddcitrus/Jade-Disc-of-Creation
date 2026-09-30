@@ -131,7 +131,7 @@ function pickCliffModel(bw, bd, r) {
 }
 
 
-/** 场景会加载的全部「旧版 .glb」自然物件（proc / mk 都不是 glb，不在此列）。 */
+/** 场景会加载的全部 .glb 自然物件（proc / mk 都不是 glb，不在此列）。 */
 export const NATURE_MODEL_FILES = [...new Set([
   ...TREE_POOL, ...BUSH_POOL, ...ROCK_POOL, ...FLOWER_POOL, ...GRASS_POOL,
   ...REED_POOL, ...BOG_POOL, ...PEBBLE_POOL, ...MUD_POOL, ...CLIFF_POOL,
@@ -146,7 +146,7 @@ export const MEGAKIT_MODEL_FILES = [...new Set([
 ])].filter(n => n.startsWith('mk:'));
 
 export const SCENE_MODEL_ROOT = '/models';
-/** 旧版自然物件路径：'tree_oak' → '/models/nature/tree_oak.glb'。角色 VRM 见 vrmUrl。 */
+/** 自然物件路径：'tree_oak' → '/models/nature/tree_oak.glb'。角色 VRM 见 vrmUrl。 */
 export function modelUrl(name) {
   return `${SCENE_MODEL_ROOT}/nature/${name}.glb`;
 }
@@ -358,8 +358,8 @@ export function propsForCell(terrainId, x, y) {
     }
 
     case '耸峰': {
-      // 巨石改为「整块布置」：由 cliffExtraProps(grid) 把相连的耸峰格切成整块，一块巨石正好
-      // 落在不可通行的格子上（不会再出现人穿模走进石头）。逐格函数这里不再单独放石头。
+      // 巨石是「整块布置」：由 cliffExtraProps(grid) 把相连的耸峰格切成整块，一块巨石正好
+      // 落在不可通行的格子上（人不会穿模走进石头）。逐格函数这里不单独放石头。
       return out;
     }
 
@@ -461,17 +461,6 @@ export function propsForCell(terrainId, x, y) {
       return out;
     }
   }
-}
-
-/** 整张棋盘上所有格子的摆放清单（预载模型时用来核对"用到的都下下来了"）。 */
-export function allUsedModels() {
-  const set = new Set();
-  for (const t of Object.keys(TERRAIN_LOOK)) {
-    for (const [x, y] of [[0, 0], [1, 2], [3, 5], [6, 7], [9, 11], [12, 13], [14, 1], [7, 3]]) {
-      for (const p of propsForCell(t, x, y)) set.add(p.model);
-    }
-  }
-  return [...set].sort();
 }
 
 /**
@@ -832,9 +821,6 @@ export function characterYawRad(facing) {
   return facingYawRad(facing) + CHARACTER_YAW_OFFSET;
 }
 
-/** 一圈里"背面"占多少（与引擎判定共用 battleGrid 的常量，见那里的 45°）。 */
-export const FACING_BACK_HALF_DEG = 45;
-
 // ============================================================
 // 十、小人：分模型 & 选动作
 // ============================================================
@@ -881,13 +867,6 @@ export function assignCharacterModels(units) {
   return map;
 }
 
-/** 模型自带的动画名（12 个小人共用同一套）。 */
-export const CLIPS = {
-  idle: 'idle',
-  walk: 'walk',
-  die: 'die',
-};
-
 /**
  * 退出战斗的人摆什么姿势。
  * 引擎的"退出"只表示不再出手，人还留在原格上（褪色 ＋ 状态牌），所以姿势要跟原因对上：
@@ -900,9 +879,6 @@ export function downClipFor(outReason) {
   if (outReason === '投降') return 'sit';
   return 'crouch';
 }
-
-/** 退场后姿势要停在最后一帧（倒地不能爬起来循环）。 */
-export const HOLD_LAST_FRAME = new Set(['die', 'sit', 'crouch']);
 
 // ---------- 动捕动作的节奏：**量出来的，不许拍脑袋** ----------
 // 为什么要有这几个数：引擎是「一点就算完」的，可画面上必须按先后演 ——
@@ -985,21 +961,6 @@ export function removePlanarDrift(values) {
 
 
 /**
- * 出手用哪只手挥。纯看"目标在我的左手边还是右手边"——只是个观感，不影响结算。
- * 算法：把"我 → 目标"的方向投到我的右手方向上。
- *   前方向是 (fx, 0, fy)、上方是 (0,1,0)，右手方向就是两者的叉积 = (−fy, 0, fx)，
- *   投到地图坐标（+y 即世界的 +z）就是 (−fy, fx)。
- *   验算：面朝 +x（地图向右）时右手指向地图 +y（向下），与"面朝东、右手朝南"一致。
- */
-export function attackClip(facing, from, to) {
-  const fx = Number(facing?.x) || 1, fy = Number(facing?.y) || 0;
-  const dx = (to?.x ?? 0) - (from?.x ?? 0);
-  const dy = (to?.y ?? 0) - (from?.y ?? 0);
-  const rightDot = (-fy) * dx + fx * dy;
-  return rightDot >= 0 ? 'attack-melee-right' : 'attack-melee-left';
-}
-
-/**
  * 退出战斗的人该写什么字。
  * 「退出战斗」是引擎的记法（退出 = 不再出手、不再被计算），但在画面上他必须**继续留在原格**，
  * 所以界面上要说人话：死亡＝已陨落、逃遁＝已遁走，其余（重伤昏迷 / 被逼入绝境）＝已倒下。
@@ -1037,7 +998,7 @@ export const FACING_RING_RADIUS = 0.40;
 // 视角沿用玩家已经熟悉的那三个数（俯角 rx / 方位 rz / 远近 zoom），
 // 只是这次真的喂给透视相机，而不是 CSS 的 rotate。
 // zoom 的含义：**1 = 刚好把整块棋盘装满画面**，比 1 大＝凑近看细节（边缘会出画，这是玩家自己要的），
-// 比 1 小＝退远看全局。所以默认就是 1，而不是以前那个 0.7。
+// 比 1 小＝退远看全局。默认 1。
 export const CAM_DEFAULT = { rx: 54, rz: 45, zoom: 1, panX: 0, panZ: 0 };
 export const CAM_RX_MIN = 18, CAM_RX_MAX = 82;
 /**

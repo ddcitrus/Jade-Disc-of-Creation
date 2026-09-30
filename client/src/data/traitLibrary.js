@@ -7,8 +7,6 @@
 // （见 snapshotSchema.js 的 attrRows「自身＋特质＋装备＝生效」、attrClamp.js）。
 //   · resolveTraitMods()：**唯一在用的口径**。库内按库权威值（AI 写的数字不许覆盖）；
 //     库外采信它写的「加成」文本（无文本才用 mods 对象），**不设上限**。
-//   · traitAllowanceMods() / TRAIT_MOD_CEILING：特质「额度」的旧口径，校界已不再使用，
-//     保留以备特质相关的其它校验（如将来做「特质强度上限」）。
 // ---------- 特质（先天气运，46 项） ----------
 export const TRAIT_RARITIES = [
   { id: 'common', name: '平庸', cost: 5 },
@@ -151,91 +149,6 @@ export function resolveTraitMods(trait) {
   const obj = (typeof trait === 'string') ? { name: trait } : trait;
   const out = ownModsOf(obj);
   return Object.keys(out).length ? out : null;
-}
-
-// ---------- 库外特质的「参考幅度」（仅在它一个字都没写时兜底） ----------
-// 取值 = 库里同稀有度、同一属性的最高幅度，由特质库现算，改库即生效。
-// 注意：这**不是上限**。库外特质写了数字就原样采信（见 resolveTraitMods），本表只回答
-// 「特质只有名称/稀有度/描述、没有任何数字时，校界该给它多大空间」。
-export const TRAIT_MOD_CEILING = (() => {
-  const table = {};
-  for (const t of TRAITS) {
-    const rarity = rarityIdOf(t.rarity) || 'common';
-    const bag = (table[rarity] = table[rarity] || {});
-    for (const [k, v] of Object.entries(cleanMods(t.mods))) {
-      const n = Math.abs(v);
-      if (n > (bag[k] || 0)) bag[k] = n;
-    }
-  }
-  return table;
-})();
-
-// 全库该属性的最高幅度（同稀有度里没有这条属性时的兜底）
-const ATTR_CEILING_FALLBACK = (() => {
-  const table = {};
-  for (const bag of Object.values(TRAIT_MOD_CEILING)) {
-    for (const [k, v] of Object.entries(bag)) {
-      if (v > (table[k] || 0)) table[k] = v;
-    }
-  }
-  return table;
-})();
-
-/**
- * 单个属性的「参考幅度」：库外特质没写数字时，校界按它给空间。
- * @param {string} rarity 稀有度（id 或中文名，缺省按「平庸」）
- * @param {string} attr 中文属性名
- */
-export function traitModCeiling(rarity, attr) {
-  const key = rarityIdOf(rarity) || 'common';
-  const own = TRAIT_MOD_CEILING[key]?.[attr];
-  if (Number.isFinite(own) && own > 0) return own;
-  const any = ATTR_CEILING_FALLBACK[attr];
-  return Number.isFinite(any) && any > 0 ? any : 0;
-}
-
-/**
- * 特质 → 「校界额度」（中文属性名 → 数值）。
- * ⚠️ 2026-09-17 起数值校界**不再调用本函数**：特质已改为与装备同路的独立叠加段
- * （见 snapshotSchema.js 的 attrRows 三段口径），不写进「自身」，境界区间不为它上移。
- * 保留以备特质相关的其它校验。口径：库内取库权威值；库外写了数字原样采信（不设上限）；
- * 库外一字未写则按稀有度给一份参考幅度（见 TRAIT_MOD_CEILING）。
- */
-export function traitAllowanceMods(trait) {
-  if (trait == null) return null;
-  const obj = (typeof trait === 'string') ? { name: trait } : trait;
-  const exact = resolveTraitMods(obj);
-  if (traitCatalogEntry(obj.name)) return exact;
-  if (exact) return exact;              // 库外但写了数字 → 原样采信
-  // 库外且没写数字（只有名称/稀有度/描述）：按该稀有度给参考幅度
-  const rarity = obj.rarity || obj['稀有度'] || '';
-  const out = {};
-  const bag = TRAIT_MOD_CEILING[rarityIdOf(rarity) || 'common'] || {};
-  for (const [attr, ceil] of Object.entries(bag)) {
-    if (ceil) out[attr] = ceil;
-  }
-  return Object.keys(out).length ? out : null;
-}
-
-/**
- * 一组特质 → 额度合计（中文属性名 → 数值），同名只计一次。
- * 服务端（v2 快照的「特质」列）与客户端（快照 traits）共用。
- */
-export function traitAllowanceTotal(traits) {
-  const out = {};
-  const seen = new Set();
-  for (const t of (Array.isArray(traits) ? traits : [])) {
-    const name = typeof t === 'string' ? t : (t?.name || t?.['名称']);
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    const raw = (typeof t === 'string')
-      ? t
-      : { name, rarity: t.rarity || t['稀有度'], mods: t.mods, 加成: t['加成'] ?? t.加成 };
-    const bag = traitAllowanceMods(raw);
-    if (!bag) continue;
-    for (const [k, v] of Object.entries(bag)) out[k] = (out[k] || 0) + v;
-  }
-  return out;
 }
 
 /** 特质词条紧凑表（注入提示词用：让 AI 有据可依地把加成算进属性） */

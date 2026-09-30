@@ -43,7 +43,7 @@ import { reachable as gridReachable, pathTo, cellKey } from '../data/battleGrid.
 
 const FLAT_TILE_SET = new Set(FLAT_TILES);
 
-// 角色 VRM 按需异步加载（见下方 units effect）；这里预载自然物件：旧版 .glb ＋ MegaKit .gltf。
+// 角色 VRM 按需异步加载（见下方 units effect）；这里预载自然物件：.glb ＋ MegaKit .gltf。
 const ALL_MODEL_JOBS = [
   ...NATURE_MODEL_FILES.map(name => ({ name, url: modelUrl(name) })),
   ...MEGAKIT_MODEL_FILES.map(name => ({ name, url: mkUrl(name) })),
@@ -91,7 +91,7 @@ const NATURE_PALETTE = {
   woodInner: 0xd6bb92,
   dirt: 0xb08a5e,           // 土
   dirtDark: 0x8a6a45,
-  stone: 0x9d968a,          // 石（原来是偏白的浅蓝）
+  stone: 0x9d968a,          // 石
   stoneDark: 0x7d776c,
   water: 0x6ba6c4,          // 水（原来接近白色）
   colorRed: 0xb8453f,       // 花
@@ -151,9 +151,18 @@ function loadLibrary() {
       () => { failed.push(name); resolve(); },
     );
   }));
-  LIB = { promise: Promise.all(jobs).then(() => ({ models, failed })) };
+  LIB = { promise: Promise.all(jobs).then(() => ({ models, failed, total: ALL_MODEL_JOBS.length })) };
   return LIB;
 }
+
+/**
+ * 忘掉这次加载的结果，下次进来重新下。
+ * 为什么需要它：LIB 是**会话级缓存**，一旦某次把"一个都没下到"的结果缓存住，这一整个页面
+ * 就会永远停在兜底格盘里 —— 哪怕模型文件早就恢复了，也得整页刷新才能好（2026-09-24 踩到：
+ * 构建时 dist 被清空重拷的那几十秒里正好进战斗，模型全 404，之后这个页面就一直没立体画面）。
+ * 有了它，「重试」按钮才能真的重来一次。
+ */
+function resetLibrary() { LIB = null; }
 
 function boxOf(root) {
   return new THREE.Box3().setFromObject(root);
@@ -789,6 +798,11 @@ const BattleScene3D = React.forwardRef(function BattleScene3D({
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [status, setStatus] = useState('loading');   // loading | ready | failed
   const [lib, setLib] = useState(null);
+  // 起不来时**到底为什么**：{ kind:'models', total, failed } | { kind:'webgl', msg }
+  // 为什么必须分开记：兜底提示原先一律写"浏览器不支持 WebGL"，可实测里更常见的是模型没下发
+  //（构建窗口、静态 404）—— 文案指错方向，玩家只能自己瞎猜（2026-09-24）。
+  const [failWhy, setFailWhy] = useState(null);
+  const [attempt, setAttempt] = useState(0);        // 点一次「重试」+1，逼下面那个 effect 重跑
   // 场景每建好一次就 +1。小人 / 高亮 / 特效这几个 effect 都盯着它 ——
   // 光靠 [lib, status] 判断"场景在不在"是不够的：场景重建时 api.current 会换成新对象，
   // 而它们的依赖没变，就会永远往旧对象里塞东西（表现为"人一个都没上场"）。
@@ -842,17 +856,29 @@ const BattleScene3D = React.forwardRef(function BattleScene3D({
   // ---------- 加载模型 ----------
   useEffect(() => {
     let alive = true;
+    setStatus('loading');
     loadLibrary().promise
-      .then(({ models, failed }) => {
+      .then(({ models, failed, total }) => {
         if (!alive) return;
         if (failed.length) console.warn(`[立体战场] ${failed.length} 个自然模型没加载成功，这些摆件会缺席：${failed.join(', ')}`);
         console.info(`[立体战场] 自然模型库就绪：${models.size} 个（角色 VRM 将在战斗中按需加载）`);
+        if (models.size === 0) {
+          // 一个都没下到 ⇒ 不是"少几个摆件"，是整块模型都没拿到：这才需要兜底格盘
+          setFailWhy({ kind: 'models', total, failed: failed.length });
+          setStatus('failed');
+          return;
+        }
         setLib(models);
-        setStatus(models.size > 0 ? 'ready' : 'failed');
+        setStatus('ready');
       })
-      .catch((e) => { if (alive) { console.warn('[立体战场] 模型库加载失败', e); setStatus('failed'); } });
+      .catch((e) => {
+        if (!alive) return;
+        console.warn('[立体战场] 模型库加载失败', e);
+        setFailWhy({ kind: 'models', total: 0, failed: 0, msg: String(e?.message || e) });
+        setStatus('failed');
+      });
     return () => { alive = false; };
-  }, []);
+  }, [attempt]);
 
   // ---------- 建场景（只建一次） ----------
   useEffect(() => {
@@ -864,6 +890,7 @@ const BattleScene3D = React.forwardRef(function BattleScene3D({
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     } catch (e) {
       console.warn('[立体战场] WebGL 起不来，退回格子视图', e);
+      setFailWhy({ kind: 'webgl', msg: String(e?.message || e) });
       setStatus('failed');
       return;
     }
@@ -898,7 +925,7 @@ const BattleScene3D = React.forwardRef(function BattleScene3D({
     // 雾距同步推远（棋盘最远约 60，故 near 取 62），保证整块棋盘清晰、只淡外围远山。
     const FOG_COLOR = 0xe9ddc2;
     scene.fog = new THREE.Fog(FOG_COLOR, 62, 112);
-    // 天空穹（取代原先的 CSS 纯色背景）
+    // 天空穹（不是 CSS 纯色背景）
     const sky = makeSkyDome(80);
     scene.add(sky);
     // 环境反射：PMREM 让水面/石头/金属有真实高光
@@ -1524,7 +1551,7 @@ const BattleScene3D = React.forwardRef(function BattleScene3D({
     const a = api.current;
     if (!a.renderer || box.w < 2 || box.h < 2) return;
     a.renderer.setSize(box.w, box.h, false);   // false：尺寸交给 CSS，这里只对齐绘制缓冲
-    // ⚠ 后处理的像素倍数必须和渲染器**用同一个**（曾经这里写死 min(dpr,2)，渲染器用的是超采样值，
+    // ⚠ 后处理的像素倍数必须和渲染器**用同一个**（写死 min(dpr,2) 时渲染器用的是超采样值，
     //   两者对不上时画面会先被降采样一次再放大 —— 看着就是"整体发糊"）。
     if (a.postFX) a.postFX.setSize(box.w, box.h, pickPixelRatio());
     a.aspect = aspect;
@@ -1659,7 +1686,7 @@ const BattleScene3D = React.forwardRef(function BattleScene3D({
           });
           // ⚠ 先记下模型**自己**的朝向修正再动手：loadVrm 里调过 VRMUtils.rotateVRM0，
           // 它对 VRM0.x 的模型会写一个 rotation.y = π（VRM1 不动）。10 个角色里 8 个是 VRM0。
-          // 早先这里直接 `model.rotation.y = facingYaw` 把这半圈**盖掉了**，
+          // 直接 `model.rotation.y = facingYaw` 会把这半圈**盖掉**，
           // 于是除了 VRM1 那个，所有人都是背朝前进方向 —— 玩家原话：
           // 「人物不会随自己跑步的方向旋转模型，看起来是倒着跑的」「攻击也没有面向攻击的对象」。
           rec.modelBaseYaw = model.rotation.y;
@@ -1827,10 +1854,21 @@ const BattleScene3D = React.forwardRef(function BattleScene3D({
   // ============================================================
   if (status === 'failed') {
     // 3D 起不来时的兜底：一格一个方块，照样点得着、走得动 ——
-    // 战斗不能因为"画不出来"就打不开
+    // 战斗不能因为"画不出来"就打不开。
+    // 提示文案必须说清**是哪一环断了**：模型没下发 / 浏览器建不了 3D 画布，两条路要玩家做的事完全不同。
+    const why = failWhy?.kind === 'webgl'
+      ? `浏览器没能建立三维画布（WebGL 不可用${failWhy.msg ? '：' + failWhy.msg : ''}）。`
+      : `三维模型没能下发（${failWhy?.total || 0} 个自然模型全部加载失败，多半是模型文件一时取不到）。`;
     return (
       <div className="battle-scene bs3-fallback" ref={wrapRef}>
-        <div className="bs3-fb-note">三维场景起不来（浏览器不支持 WebGL），已退回格子视图，操作照旧</div>
+        <div className="bs3-fb-note">
+          {why}已退回格子视图，操作照旧。
+          <button
+            className="bs3-fb-retry"
+            onClick={() => { resetLibrary(); setLib(null); setFailWhy(null); setAttempt(a => a + 1); }}>
+            重试
+          </button>
+        </div>
         <div className="bs3-fb-grid" style={{ gridTemplateColumns: `repeat(${MAP_SIZE}, 1fr)` }}>
           {grid.flatMap((row, y) => row.map((tid, x) => (
             <button

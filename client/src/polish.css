@@ -37,10 +37,13 @@ button {
 }
 button:hover:not(:disabled) { transform: translateY(-1px); }
 button:active:not(:disabled) { transform: translateY(1px) scale(0.99); }
-/* 主按钮：鎏金 + 顶部高光 + 内描边，更像一枚金印 */
+/* 主按钮：顶部高光 + 外阴影，更像一枚印
+   ⚠ 第五刀（2026-09-23）起这里**不写 border-color** —— 边框由 border-image
+     （完整四边手绘框）负责，border-color 在那条带上本来就是死的。
+     ⚠ 同时必须把 border-radius 压回 0：本文件别处给按钮的圆角会裁掉四角顿笔。 */
 button.primary {
   background: linear-gradient(180deg, #e0c277 0%, #c6a14a 48%, #a8842f 100%);
-  border-color: #8a6c24;
+  border-radius: 0;
   box-shadow: inset 0 1px 0 rgba(255, 246, 218, 0.55), 0 3px 10px rgba(120, 92, 30, 0.30);
 }
 button.primary:hover:not(:disabled) {
@@ -90,8 +93,12 @@ input:focus, textarea:focus, select:focus {
 .splash .menu-list button:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-lift);
-  border-color: var(--gold-dim);
 }
+/* ⚠ 这里原来有 `border-color: var(--gold-dim)`。
+   guigu.css 给按钮换成了「墨底 + 手绘笔触」的边框，而本条的特异性
+   (.splash .menu-list button:hover = 0,3,2) 比 guigu.css 里那条还高，
+   于是悬停时边框会被提亮成浅青，笔触透出来的部分就不再是墨色 —— 笔锋消失。
+   悬停只保留上浮 + 阴影加深，边框交给 guigu.css 的墨底。 */
 
 /* ============ 叙事故事页：卷轴纸感 ============ */
 .story-scroll {
@@ -113,7 +120,11 @@ input:focus, textarea:focus, select:focus {
 .story-block:last-child::after { content: none; }
 .story-text { text-wrap: pretty; }
 
-/* 游戏内左侧导航：选中项加鎏金竖条 */
+/* 游戏内左侧导航：选中项加鎏金竖条
+   ⚠⚠ 2026-09-23：这条在「木牌」皮肤下**已被完全压制**（权重 0,3,0 低于 guigu.css 的 0,4,1，
+   且 guigu.css 在 :hover/.active 两处都把 box-shadow 整条重写了）。
+   保留原文是为了其它主题/回归对照；**不要**以为它还能在木牌上画出金竖条。
+   实测依据：diagbar.cjs 打出的命中规则里它虽在列，但 computed 上不含 inset 3px 0。 */
 .game-nav .nav-item.active {
   box-shadow: inset 3px 0 0 var(--gold-dim);
   background: rgba(197, 169, 94, 0.18);
@@ -127,8 +138,14 @@ input:focus, textarea:focus, select:focus {
 }
 .modal { position: relative; }
 
-/* Toast 轻浮起 */
-.toast, [class*='toast'] { box-shadow: var(--shadow-lift); }
+/* ⚠⚠ `[class*='toast']` 这条通配选择器已撤（2026-09-23）。
+   它同时命中 **.toast-stack** —— 那是装提示条的透明容器，自己既没背景也没边框，
+   于是投影只能画在它边框盒**外面**，在提示条四周糊出一圈暗影，
+   读起来就是「框外面还套了一层」。实测（ggshot/splashnav.cjs）：.toast-stack 算出来的
+   box-shadow 正是这两个值（0 6px 16px / 0 18px 44px，各 55% 黑）。
+   ⚠ 顺带说明：`.toast { box-shadow: var(--shadow-lift) }` 这一半本来就是**死的** ——
+     guigu.css 的 `.toast` 同权重、后加载，给的是 `0 10px 34px rgba(0,0,0,.7)`。
+   所以整条删掉：提示条的外观（牌面 / 投影 / 无边框）只由 guigu.css §10 那一处决定。 */
 
 /* ============================================================
    战斗界面 · 玄色鎏金玻璃 HUD
@@ -199,24 +216,26 @@ input:focus, textarea:focus, select:focus {
   box-shadow: inset 0 0 0 1px var(--border-gold);
 }
 
-/* 战斗壳内的按钮：深色玻璃 + 鎏金描边（覆盖全局浅色硬编码渐变） */
+/* 战斗壳内的按钮：深色玻璃（覆盖全局浅色硬编码渐变）。
+   ⚠ 第五刀起**不写 border-color**（边框由 border-image 负责，它在这条带上无效）。
+     ⚠ 但必须把 border-radius 压回 0，否则四角的手绘顿笔会被裁圆。
+     状态靠背景与发光。 */
 .battle-shell button {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
-  border-color: var(--border-gold);
+  border-radius: 0;
   color: var(--text);
   box-shadow: none;
 }
 .battle-shell button:hover:not(:disabled) {
   background: var(--gold-bg);
-  border-color: var(--gold-dim);
   color: var(--gold);
-  box-shadow: 0 0 0 1px rgba(214, 184, 106, 0.25);
+  box-shadow: 0 0 0 1px rgba(154, 206, 196, 0.22);
 }
 /* 主操作（结束回合等）在深色底上更亮的鎏金 */
 .battle-shell button.primary,
 .battle-shell button.bp-end {
   background: linear-gradient(180deg, #e0c277, #c29c46);
-  border-color: #8a6c24; color: #241c08; font-weight: 700;
+  border-radius: 0; color: #241c08; font-weight: 700;
   text-shadow: 0 1px 0 rgba(255, 246, 218, 0.4);
 }
 .battle-shell button.primary:hover:not(:disabled),
@@ -224,21 +243,22 @@ input:focus, textarea:focus, select:focus {
   background: linear-gradient(180deg, #e8cd86, #ccaa52);
   color: #1c1507;
 }
-/* 危险 / 取消类 */
+/* 危险 / 取消类：危险态靠文字染红 + 红色外发光表达，边框仍是同一张手绘框。 */
 .battle-shell button.danger,
-.battle-shell .bp-act.cancel { color: var(--red); border-color: rgba(226, 138, 120, 0.5); }
+.battle-shell .bp-act.cancel { color: var(--red); }
 
 /* Tab 与列表项 */
 .bp-tabs button { background: rgba(255, 255, 255, 0.035); color: var(--text-dim); }
-.bp-tabs button.on { background: var(--gold-bg); color: var(--gold); border-color: var(--border-gold); }
+.bp-tabs button.on { background: var(--gold-bg); color: var(--gold); }
 .bp-unit { background: rgba(255, 255, 255, 0.035); border-color: var(--border); }
 .bp-unit.acting { background: var(--gold-bg); border-color: var(--border-gold); }
 .bpu-bar { background: var(--bg-3); border-color: var(--border); }
+/* ⚠ .bp-act 的 (0,1,0)+元素 = (0,2,0)，与基线 (0,4,1) 比是**更低**的
+   ⇒ 第五刀之后基线会赢，这里只需要把牌面写清楚；边框交给基线。 */
 .bp-act {
   background: rgba(255, 255, 255, 0.04);
-  border-color: var(--border);
 }
-.bp-act:hover:not(:disabled) { background: var(--gold-bg); border-color: var(--border-gold); }
+.bp-act:hover:not(:disabled) { background: var(--gold-bg); }
 .bp-act:disabled { background: rgba(255, 255, 255, 0.02); }
 .bp-act-kind { border-color: var(--border); color: var(--text-faint); }
 .bp-flag { border-color: var(--border); }

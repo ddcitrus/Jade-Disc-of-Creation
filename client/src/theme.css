@@ -3,6 +3,27 @@
    原则：8px 网格 · 清晰层级 · 一致性 · 即时反馈 · 可访问性
    ============================================================ */
 
+/* ---- 篆书字体（储物袋印面用）--------------------------------------------
+   霞鹜篆书 LXGW Seal（秦小篆 / 《说文》小篆）· SIL Open Font License 1.1（可自由分发）
+   https://github.com/lxgw/LxgwSeal
+   选它而不是敬峰中山王篆：中山王篆是战国器铭，线条细、带装饰性长尾，缩到 30px 的印面上
+   会糊成一团；秦小篆笔画匀、结构方正、圆转匀称，小尺寸下反而清楚，也更古朴庄重。
+   ⚠ 霞鹜篆书是 alpha 版，只有 133 个汉字 —— 印面要用的「卅」（30~36 品）和兜底「品」
+     它都没有。这两个字由 build_seal_font.py **用现成部件拼**：
+       「卅」= 「廿」的通横 + 「十」的竖复制三份（竖向收细到 74%，否则三根粗竖挤成栅栏）
+       「品」= 「古」的下半部「口」，缩到 66% 后排成品字形
+   ⚠ 印面要写新字时：改 client/_unused/zhuan/build_seal_font.py 的 HAVE，重跑一次（加 --woff2），
+     它会把整个字体重建成最小字体再写出这里指的文件；否则新字会静默掉回宋体，一行两种字体。
+   ⚠ 走 src/assets 而不是 public：Vite 会给它加内容 hash（assets/xxx-<hash>.woff2），
+     服务器便按「带 hash 可长缓存」处理；放 public 则文件名不带 hash，每次都要回源校验。 */
+@font-face {
+  font-family: 'MortalSeal';
+  src: url('./assets/fonts/seal-script.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* ---- 色彩（对比度按 WCAG AA 校验） ---- */
   --bg-0: #f5f1e6;          /* 页面底 */
@@ -95,10 +116,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   outline: 2px solid var(--gold-dim); outline-offset: 2px;
 }
 
-/* 主操作：唯一醒目 */
+/* 主操作：唯一醒目
+   ⚠ 2026-09-23：本文件这一条 (0,2,0) 与 guigu.css 的 `button` (0,2,0) 打平，
+     靠源序由 guigu.css 胜出 ⇒ 这里写死的东西其实被盖住了。但**留着**是因为
+     它同时兼作"如果哪天有人调整引入顺序"的兜底，且色值已被下方注释说明。
+     border-color 这里不写 —— 写死浅色会随源序变化偶发性地把墨底盖掉。 */
 button.primary {
   background: linear-gradient(180deg, #c9a95b, #a9882f);
-  border-color: #8f7222; color: #fffdf4; font-weight: 600;
+  color: #fffdf4; font-weight: 600;
   text-shadow: 0 1px 1px rgba(80, 62, 16, 0.35);
 }
 button.primary:hover:not(:disabled) { background: linear-gradient(180deg, #d5b76b, #b3923a); color: #fff; }
@@ -106,19 +131,21 @@ button.primary:hover:not(:disabled) { background: linear-gradient(180deg, #d5b76
 button.ghost { background: transparent; border-color: var(--border); color: var(--text-dim); box-shadow: none; }
 button.ghost:hover:not(:disabled) { border-color: var(--gold-dark); color: var(--gold); box-shadow: none; background: rgba(197, 169, 94, 0.08); }
 /* 危险 */
-button.danger { border-color: #c58585; color: var(--red); background: linear-gradient(180deg, #fffaf8, #f9edeb); }
-button.danger:hover:not(:disabled) { border-color: var(--red); color: #8c2f2f; box-shadow: 0 2px 8px rgba(160, 60, 60, 0.2); }
+button.danger { color: var(--red); background: linear-gradient(180deg, #fffaf8, #f9edeb); }
+button.danger:hover:not(:disabled) { color: #8c2f2f; box-shadow: 0 2px 8px rgba(160, 60, 60, 0.2); }
 /* 尺寸 */
 button.small { min-height: 26px; padding: 2px 10px; font-size: var(--fs-xs); }
 
 /* ============ 表单 ============ */
 input, textarea, select {
   font-family: inherit; background: #fff;
-  border: 1px solid var(--border); color: var(--text);
+  /* 边框加粗成 2px 且统一走金色：1px 的 --border（#d8cfb4）在纸上几乎看不出是"一个框"，
+     玩家找不到可填的地方（用户 2026-09-24 反馈"选项框、储物袋里的框都不大明显"）。 */
+  border: 2px solid var(--border-gold); color: var(--text);
   border-radius: var(--radius-sm);
-  padding: 6px 11px; font-size: var(--fs-md); outline: none;
+  padding: 7px 12px; font-size: var(--fs-md); outline: none;
   transition: border-color .15s, box-shadow .15s;
-  min-height: 34px;
+  min-height: 36px;
 }
 textarea { resize: vertical; min-height: 72px; line-height: 1.7; }
 input:hover:not(:focus):not(:disabled), textarea:hover:not(:focus), select:hover:not(:focus) { border-color: var(--gold-dark); }
@@ -186,7 +213,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
 .wizard-footer .points { color: var(--gold); font-weight: 600; margin-left: auto; margin-right: auto; }
 
 /* ============ 主菜单 ============ */
-.splash { height: 100%; display: flex; flex-direction: column; align-items: center; padding: var(--s7) var(--s4) var(--s4); overflow: auto; }
+/* ⚠ 2026-09-23：首页改成「整屏封面 + 右侧落款」。
+   .splash 现在是**定位容器**（原来的 flex 居中列布局交给 .splash-side）。
+   三个新增层：.splash-cover（封面画）/ .splash-scrim（右侧压暗）/ .splash-side（内容列）。
+   结构改动写在 guigu.css §8，这里只保留最基础的定位，免得两处打架。 */
+.splash { position: relative; height: 100%; overflow: hidden; }
 .splash .title-block { text-align: center; margin-bottom: var(--s6); }
 .splash .main-title {
   font-family: var(--font-serif);
@@ -200,12 +231,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
 .splash .menu-list { display: flex; flex-direction: column; gap: var(--s2); width: 300px; }
 .splash .menu-list button { padding: var(--s3); font-size: var(--fs-lg); font-family: var(--font-serif); letter-spacing: 4px; min-height: 44px; }
 .splash .footer { margin-top: auto; padding-top: var(--s6); color: var(--text-faint); font-size: var(--fs-xs); text-align: center; }
-
 /* ============ 步骤条 ============ */
 .step-nav { display: flex; gap: 4px; flex-wrap: wrap; padding: var(--s2) var(--s4); background: var(--bg-1); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.step-nav button { padding: 4px 12px; font-size: var(--fs-sm); border-radius: 16px; border-color: var(--border); background: #fff; color: var(--text-dim); min-height: 28px; }
-.step-nav button.done { color: var(--gold-dim); border-color: var(--gold-dark); }
-.step-nav button.current { color: var(--gold); border-color: var(--gold-dim); background: rgba(197, 169, 94, 0.15); }
+.step-nav button { padding: 4px 12px; font-size: var(--fs-sm); border-radius: 0; background: var(--bg-2); color: var(--text-dim); min-height: 28px; }
+.step-nav button.done { color: var(--gold-dim); }
+.step-nav button.current { color: var(--gold); background: var(--gold-bg); }
 
 /* ============ 卡片 ============ */
 .card {
@@ -233,32 +263,26 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
 
 /* ============ 分区（合理的间距与分组） ============ */
 .section { margin-bottom: var(--s5); max-width: var(--content-w); }
-/* 设置页小标题：加粗 + 粗金条 + 渐变底衬，与正文字段拉开层级 */
-.section > h3 {
+/* 设置页小标题：加粗 + 粗金条 + 整条底衬，让每个模块一眼分开 */
+.section > h3, .section > h4, .section-head-row > h3 {
   margin-bottom: var(--s4);
   padding: 5px 12px;
   border-left: 4px solid var(--gold);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: linear-gradient(90deg, rgba(197, 169, 94, 0.22), rgba(197, 169, 94, 0));
-  font-size: 17px;
+  background: linear-gradient(90deg, rgba(197, 169, 94, 0.34), rgba(197, 169, 94, 0.10));
+  background-origin: border-box;
+  background-clip: border-box;
   font-weight: 800;
   letter-spacing: 0.6px;
 }
+.section > h3, .section-head-row > h3 { font-size: 17px; }
+.section > h4 { font-size: 15px; }
 .section-head-row { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3); flex-wrap: wrap; }
-.section-head-row > h3 {
-  margin: 0;
-  padding: 5px 12px;
-  border-left: 4px solid var(--gold);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: linear-gradient(90deg, rgba(197, 169, 94, 0.22), rgba(197, 169, 94, 0));
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: 0.6px;
-}
+.section-head-row > h3, .section-head-row > h4 { margin: 0; }
 .section-head-row .spacer { flex: 1; }
 
 .field { margin-bottom: var(--s3); max-width: 560px; }
-.field > label { display: block; font-size: var(--fs-sm); color: var(--text-dim); margin-bottom: 5px; font-weight: 700; }
+.field > label { display: block; font-size: var(--fs-sm); color: var(--text-dim); margin-bottom: 6px; font-weight: 700; }
 /* 标签后缀（必填 / 可留空 / 逗号分隔…）：小灰字，不用括号打断名词 */
 .lbl-note {
   margin-left: 5px; padding: 0 4px;
@@ -317,26 +341,49 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
 /* ============ 游戏壳 ============ */
 .game-shell { flex: 1; display: flex; overflow: hidden; }
 
+/* 左栏＝挂绳。宽度按「木牌 + 两侧留白」定死，牌面文字必须**折行**而不是被裁掉
+   （见 guigu.css 的 .nav-label：white-space:normal + overflow-wrap:anywhere）。 */
 .game-nav {
-  width: 124px; flex-shrink: 0;
+  width: 148px; flex-shrink: 0;
   background: linear-gradient(180deg, #fbf6e8, #f4eeda);
   border-right: 1px solid var(--border-gold);
   display: flex; flex-direction: column;
   padding: var(--s2) 6px;
+  position: relative;
+}
+/* 挂绳本体：一条贯穿上下的竖绳，牌子压在它上面 */
+.game-nav .nav-cord {
+  position: absolute; top: 0; bottom: 0; left: 50%;
+  width: 3px; margin-left: -1.5px;
+  pointer-events: none; z-index: 0;
+}
+.game-nav .nav-stack {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 13px; padding-top: 6px;
 }
 .game-nav .nav-item {
-  display: flex; align-items: center; gap: var(--s2);
+  display: flex; align-items: center; gap: 6px;
   border: none; background: transparent; box-shadow: none;
-  color: var(--text-dim); font-size: var(--fs-md);
-  padding: 8px 10px; border-radius: var(--radius-sm);
-  margin-bottom: 2px; text-align: left; min-height: 38px;
+  color: var(--text-dim); font-size: var(--fs-sm);
+  /* 顶部多留 12px 给凿孔与平结（它们是绝对定位，不能压到字上） */
+  padding: 12px 8px 8px; border-radius: 0;
+  text-align: left; min-height: 45px;
   font-family: var(--font-serif);
+  position: relative; width: 100%; max-width: 116px;
+  box-sizing: border-box;
   transition: background .15s, color .15s;
+}
+/* ⚠⚠ 文字不许裁：牌面窄，四字条目必须能折行显示完整。
+   （nav 宽 148px、label 必须折行，否则「剧情演化」会被内容区裁掉。） */
+.game-nav .nav-label {
+  white-space: normal; overflow-wrap: anywhere; min-width: 0;
+  line-height: 1.2;
 }
 .game-nav .nav-item:hover:not(:disabled) { background: rgba(197, 169, 94, 0.14); color: var(--gold); box-shadow: none; }
 .game-nav .nav-item.active { background: rgba(197, 169, 94, 0.24); color: var(--gold); font-weight: 600; }
-.game-nav .nav-icon { font-size: 16px; width: 20px; text-align: center; }
-.game-nav .nav-bottom { margin-top: auto; padding: var(--s2) 6px 4px; border-top: 1px dashed var(--border); }
+.game-nav .nav-icon { font-size: 15px; width: 20px; text-align: center; flex: 0 0 auto; }
+.game-nav .nav-bottom { margin-top: auto; padding: var(--s2) 6px 4px; border-top: 1px dashed var(--border); position: relative; z-index: 1; }
 .game-nav .nav-turn { font-size: var(--fs-xs); color: var(--gold-dim); font-weight: 600; }
 .game-nav .nav-time { font-size: 11px; color: var(--text-faint); }
 
@@ -648,9 +695,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
 .dim-row .dim-labels .r { color: var(--text-dim); font-weight: 600; }
 .dim-row .dim-desc { font-size: var(--fs-xs); color: var(--text-faint); margin-bottom: 6px; }
 .dim-scale { display: flex; gap: 6px; }
-.dim-scale button { flex: 1; padding: 5px 0; font-size: var(--fs-sm); border-radius: var(--radius-sm); background: #fff; border: 1px solid var(--border); color: var(--text-faint); box-shadow: none; min-height: 30px; }
-.dim-scale button:hover:not(:disabled) { box-shadow: none; border-color: var(--gold-dark); }
-.dim-scale button.on { background: #f3e8c8; border-color: var(--gold-dim); color: var(--gold); font-weight: 600; }
+.dim-scale button { flex: 1; padding: 5px 0; font-size: var(--fs-sm); border-radius: 0; background: var(--bg-2); color: var(--text-faint); box-shadow: none; min-height: 30px; }
+.dim-scale button:hover:not(:disabled) { box-shadow: none; }
+.dim-scale button.on { background: var(--gold-bg); color: var(--gold); font-weight: 600; }
 
 /* 性格维度 · 紧凑条（双列，可拖可点） */
 .pers-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px var(--s4); }
@@ -660,18 +707,10 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
 .pers-pole { white-space: nowrap; }
 .pers-pole.on { color: var(--gold); font-weight: 700; }
 .pers-pole.r { text-align: right; }
-.pers-bar {
-  position: relative; display: flex; gap: 2px; height: 7px; margin-top: 3px;
-  cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none;
-  border-radius: 4px;
-}
-.pers-bar.ro { cursor: default; }
-.pers-bar:focus-visible { outline: 2px solid var(--gold-dim); outline-offset: 2px; }
-.pers-bar::after { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--border-gold); opacity: 0.6; }
-.pers-cell { flex: 1; border-radius: 2px; background: var(--bg-3); transition: background 0.12s var(--ease); }
-.pers-cell.on { background: var(--gold-dark); }
-.pers-bar:not(.ro):hover .pers-cell { background: #ddd3b6; }
-.pers-bar:not(.ro):hover .pers-cell.on { background: var(--gold-dim); }
+/* 滑块本体就是全局那支水墨 range（guigu.css 第 5b 节），这里只补格子里的宽度与聚焦环 */
+.pers-slider { width: 100%; margin: 1px 0 0; }
+.pers-slider:disabled { cursor: default; }
+.pers-slider:focus-visible { outline: 2px solid var(--gold-dim); outline-offset: 2px; }
 .pers-desc { margin-top: 2px; font-size: 11px; line-height: 1.35; color: var(--text-faint); }
 .pers-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 var(--s3); font-size: var(--fs-xs); color: var(--text-faint); }
 .pers-summary .pers-chip { padding: 1px 7px; border-radius: 10px; background: var(--gold-bg); border: 1px solid var(--border-gold); color: var(--gold); font-weight: 600; }
@@ -689,7 +728,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
 .drawer-backdrop { position: fixed; inset: 0; background: rgba(64, 54, 28, 0.28); z-index: 90; animation: fade-in .18s var(--ease); }
 .char-drawer {
   position: fixed; top: 0; right: 0; bottom: 0;
-  width: 66.7vw; min-width: 620px;
+  width: 76.7vw; min-width: 716px;   /* 2026-09-24：用户要求整块向左加宽 15%（66.7 → 76.7vw，面板贴右侧固定，所以是向左长） */
   background: var(--bg-1); border-left: 2px solid var(--border-gold);
   box-shadow: var(--shadow-3); z-index: 95;
   display: flex; flex-direction: column;
@@ -699,8 +738,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
 .char-drawer-head { display: flex; align-items: center; justify-content: space-between; padding: var(--s2) var(--s5); border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .char-drawer-body { flex: 1; display: flex; overflow: hidden; }
 
-.char-list-col { width: 204px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid var(--border); padding: var(--s3); }
-.char-add-row { display: flex; gap: 6px; margin-bottom: var(--s3); }
+.char-list-col { width: 264px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid var(--border); padding: var(--s3); }   /* 最左那栏"名字"比面板多加宽些：204 → 264 */
+.char-add-row { display: flex; gap: 8px; margin-bottom: var(--s3); }
 .char-group { margin-bottom: var(--s2); }
 .char-group-title { font-size: var(--fs-xs); color: var(--gold-dim); font-weight: 600; padding: 4px 0; }
 .char-item { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 5px var(--s2); border-radius: var(--radius-sm); cursor: pointer; border: 1px solid transparent; transition: background .12s; }
@@ -769,10 +808,13 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
   :root { --read-w: 100%; --side-gap: 12px; }
   .side-panel { display: none; }
   .card-grid, .style-grid { grid-template-columns: 1fr; }
-  .game-nav { width: 52px; }
+  .game-nav { width: 56px; }
   .game-nav .nav-label { display: none; }
-  .game-nav .nav-item { justify-content: center; }
-  .char-list-col { width: 148px; }
+  .game-nav .nav-item { justify-content: center; max-width: 44px; padding: 11px 4px 8px; min-height: 42px; }
+  /* 窄栏下绳子收细；牌顶挂结按比例收小 */
+  .game-nav .nav-cord { width: 2px; margin-left: -1px; }
+  .game-nav .nav-knot { width: 9px; top: 4px; }
+  .char-list-col { width: 192px; }
   .char-drawer, .settings-drawer { width: 96vw; min-width: 0; }
   .story-scroll, .action-bar { padding-left: var(--s3); padding-right: var(--s3); }
   .gamepage-body, .gamepage-foot, .gamepage-head { padding-left: var(--s3); padding-right: var(--s3); }
@@ -798,10 +840,19 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
 .subnav-item.active { background: rgba(197, 169, 94, 0.22); }
 .subnav-name { display: block; font-size: var(--fs-md); font-weight: 600; color: var(--text); }
 .subnav-item.active .subnav-name { color: var(--gold); }
-.subnav-desc { display: block; font-size: 11px; color: var(--text-faint); margin-top: 1px; }
 .settings-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .settings-main-body { flex: 1; overflow-y: auto; padding: var(--s5) var(--s6); }
 .settings-main-body > * { max-width: 860px; margin-left: auto; margin-right: auto; }
+/* 分页顶部的功能介绍：一句话说清这一页管什么（左栏小字说明已取消，挪到这里） */
+.settings-main-body > .tab-intro {
+  max-width: none;
+  margin: 0 0 var(--s4);
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--gold-dim);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: 1.75;
+}
 .settings-main-foot { flex-shrink: 0; display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s6); border-top: 1px solid var(--border); background: var(--bg-1); }
 .font-preview { padding: var(--s3) var(--s4); border: 1px dashed var(--border-gold); border-radius: var(--radius); background: rgba(255, 253, 246, 0.7); line-height: 1.9; margin-top: var(--s2); }
 
@@ -970,14 +1021,53 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
 .sp-accordion-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px var(--s4); background: linear-gradient(180deg, #fbf5e1, #f6eed6); border: none; cursor: pointer; text-align: left; font-family: var(--font-serif); font-size: 15px; color: var(--gold-dark); transition: background var(--ease) 0.15s; }
 .sp-accordion-head:hover { background: linear-gradient(180deg, #f9efd0, #f3e7c8); }
 .sp-accordion-name { font-weight: 600; }
-.sp-accordion-actions { display: flex; gap: 6px; padding: 0 var(--s4) 8px; background: linear-gradient(180deg, #f6eed6, #fffdf6); border-top: 1px dashed var(--border); }
+/* ⚠ 上内边距不能是 0：按钮带 7px 的牌面（border-image 画在 border box 里），
+   顶边就是牌面上缘 —— 贴着 border-top 那条虚线看着就是「按钮压在线上」。 */
+.sp-accordion-actions { display: flex; gap: 6px; padding: 8px var(--s4) 8px; background: linear-gradient(180deg, #f6eed6, #fffdf6); border-top: 1px dashed var(--border); }
 .sp-accordion-body { padding: var(--s3) var(--s4) var(--s4); }
 .sp-toggle { display: inline-block; width: 14px; color: var(--gold-dim); font-size: 12px; transition: transform var(--ease) 0.2s; }
 .sp-prompt-list { display: flex; flex-direction: column; gap: 4px; }
 .sp-prompt-row { border: 1px solid var(--border); border-radius: var(--radius-sm); background: #fffef9; overflow: hidden; transition: border-color var(--ease) 0.15s; }
 .sp-prompt-row:hover { border-color: var(--gold-dim); }
-.sp-prompt-row.off { opacity: 0.5; }
+/* 停用态：只压暗文字与标签，**不再整行变淡** ——
+   整行 opacity 会连左侧那个开关一起灰掉，开/关就分不清了（开关自己要始终保持清晰）。 */
+.sp-prompt-row.off .sp-prompt-name,
+.sp-prompt-row.off .sp-prompt-preview,
+.sp-prompt-row.off .sp-toggle,
+.sp-prompt-row.off .sp-grip,
+.sp-prompt-row.off .tag { opacity: 0.45; }
 .sp-prompt-row.open { border-color: var(--gold-dim); background: #fbf6e7; }
+/* 段启停开关：常驻段行左侧，点一下即开闭，无须展开该段（放在展开区里的那个按钮已撤掉）。
+   刻意用 span[role=switch] 而**不是** button —— guigu 换肤给所有 button 铺了「牌面」
+   （button:not(.ghost):not(.tabs)…，权重 (0,4,1)），药丸会被压成方牌。
+   与世界因子那套 .factor-switch 同尺寸同观感，改一处记得另一处也跟着改。 */
+.sp-seg-switch {
+  flex: 0 0 auto;
+  position: relative;
+  width: 34px; height: 19px;
+  border-radius: 10px;
+  background: var(--border);
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: inset 0 1px 2px rgba(96, 80, 38, 0.16);
+  transition: background var(--ease) 0.18s, box-shadow var(--ease) 0.18s;
+}
+.sp-seg-switch::after {
+  content: '';
+  position: absolute; top: 2px; left: 2px;
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-1);
+  transition: left var(--ease) 0.18s, background var(--ease) 0.18s;
+}
+/* 开：滑轨镀金，滑球推到右端 */
+.sp-seg-switch[aria-checked="true"] { background: var(--gold-dim); box-shadow: inset 0 1px 2px rgba(80, 62, 20, 0.26); }
+.sp-seg-switch[aria-checked="true"]::after { left: 17px; background: #fffdf6; }
+/* 悬停：只加一圈柔光，不动尺寸 —— 行高才不会跳（轨道 34×19 保持不变） */
+.sp-seg-switch:hover { box-shadow: inset 0 1px 2px rgba(96, 80, 38, 0.16), 0 0 0 3px rgba(197, 169, 94, 0.22); }
+/* 「开 + 悬停」这条权重 (0,3,0) 高于上面那条 (0,2,0)，两者同时命中时由它胜出，与源序无关 */
+.sp-seg-switch[aria-checked="true"]:hover { box-shadow: inset 0 1px 2px rgba(80, 62, 20, 0.26), 0 0 0 3px rgba(197, 169, 94, 0.28); }
 /* 拖动排序：拖动中半透明，落点行描边提示 */
 .sp-prompt-row.dragging { opacity: 0.45; }
 .sp-prompt-row.drop-target { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
@@ -1027,6 +1117,58 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
 .word-range-ctl input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .word-range-ctl .dash { color: var(--text-faint); }
 
+/* 「字数」旁边的开战按钮：跟字数控件同高，别把这一行撑高 */
+.quick-actions .manual-battle-btn { flex: 0 0 auto; white-space: nowrap; }
+
+/* ===== 手动开战：选人弹窗 ===== */
+.battle-setup-modal { max-width: 560px; }
+/* 角色多的时候让**列表自己滚**，别把下面的「缘由 / 死斗」挤出可视区
+   （body 是 overflow:auto，内容一超就得整块滚——实测 9 个角色时最后一行只剩半个勾选框） */
+.battle-setup-modal .modal-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.battle-setup-modal .modal-body > * { flex: 0 0 auto; }
+.battle-setup-modal .modal-body > .bs-list { flex: 1 1 auto; min-height: 110px; overflow-y: auto; }
+.bs-hint { margin: 0 0 10px; font-size: var(--fs-sm); line-height: 1.75; color: var(--text-dim); }
+.bs-hint.bs-warn {
+  margin: 10px 0 0; padding: 6px 11px;
+  border: 1px solid var(--border-gold); border-radius: var(--radius-sm);
+  background: rgba(197, 169, 94, 0.13);
+}
+.bs-side-summary {
+  display: flex; flex-direction: column; gap: 2px;
+  margin-bottom: 10px; padding: 7px 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: rgba(255, 253, 246, 0.55);
+  font-size: var(--fs-sm); color: var(--text-dim);
+}
+.bs-side-summary b { margin-right: 8px; color: var(--gold); font-weight: 600; }
+/* 高度交给面板的 flex 分配（见上），不写死 max-height —— 写死会在高窗口里白留一段空 */
+.bs-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; padding-right: 2px; }
+.bs-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: rgba(255, 253, 246, 0.4);
+}
+.bs-row.picked.left { border-color: var(--gold-dim); background: rgba(197, 169, 94, 0.14); }
+.bs-row.picked.right { border-color: var(--red); background: rgba(160, 60, 60, 0.12); }
+.bs-who { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.bs-name { font-size: var(--fs-md); color: var(--text); }
+.bs-name em {
+  margin-left: 6px; padding: 0 4px;
+  font-style: normal; font-size: var(--fs-xs); color: var(--gold);
+  border: 1px solid var(--border-gold); border-radius: 3px;
+}
+.bs-meta { font-size: var(--fs-xs); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.bs-btns { flex: 0 0 auto; display: flex; gap: 6px; }
+.bs-extra {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border);
+}
+.bs-note { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-dim); white-space: nowrap; }
+.bs-note input { flex: 1 1 auto; min-width: 0; }
+.bs-death { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--text-dim); }
+.bs-foot-hint { margin-right: auto; font-size: var(--fs-xs); color: var(--text-faint); }
+
 /* ===== 修复：角色名册新建按钮被挤压遮挡 ===== */
 .char-add-row input { min-width: 0; flex: 1 1 0; }
 .char-add-row button { flex: 0 0 auto; white-space: nowrap; }
@@ -1056,7 +1198,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--gold-dim); box-s
 .attr-num-row .bonus-total.down { color: var(--danger, #a3452f); }
 
 /* ===== 快照内联编辑 ===== */
-.snap-edit-input { width: 100%; min-height: 26px; padding: 2px 8px; font-size: 12px; border: 1px solid var(--border-gold); border-radius: 4px; background: #fffdf6; }
+.snap-edit-input { width: 100%; min-height: 28px; padding: 3px 9px; font-size: 12px; border: 2px solid var(--border-gold); border-radius: 4px; background: #fffdf6; }
 textarea.snap-edit-input { resize: vertical; line-height: 1.5; }
 
 /* ===== 正文渲染：Mortal 语义标记 ===== */
@@ -1176,6 +1318,15 @@ textarea.snap-edit-input { resize: vertical; line-height: 1.5; }
   margin-left: 8px; font-size: var(--fs-xs); color: var(--text-faint);
   border: 1px dashed var(--border); border-radius: 10px; padding: 0 6px; vertical-align: middle;
 }
+/* ===== AI 回复正文编辑 ===== */
+.ai-edit-row { margin-top: var(--s1); text-align: right; }
+.ai-edit-row .msg-edit-btn {
+  margin-left: 0; padding: 0 8px; min-height: 21px;
+  font-size: var(--fs-xs); background: transparent; border-color: var(--border);
+  color: var(--text-faint); box-shadow: none; opacity: 0.5; transition: opacity 0.15s ease;
+}
+.story-block:hover .ai-edit-row .msg-edit-btn { opacity: 1; border-color: var(--gold-dark); color: var(--gold-dim); }
+.ai-edit-row .msg-edit-btn:hover { opacity: 1; background: rgba(197, 169, 94, 0.14); color: var(--gold); }
 .story-edit { border: 1px solid var(--border-gold); background: var(--gold-bg); border-radius: var(--radius); padding: var(--s3); }
 .story-edit-area {
   width: 100%; min-height: 76px; max-height: 340px; resize: vertical;
@@ -1217,7 +1368,7 @@ textarea.snap-edit-input { resize: vertical; line-height: 1.5; }
 
 /* ===== 储物袋编辑（字段直编模式） ===== */
 .inv-edit-item { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; margin-bottom: 8px; border: 1px dashed var(--border-gold); border-radius: 8px; background: rgba(212, 175, 55, 0.02); }
-.inv-edit-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.inv-edit-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .inv-edit-row input { min-width: 0; }
 .inv-edit-row .snap-edit-input { flex: 1 1 100px; }
 .inv-edit-row .inv-edit-qty { flex: 0 0 74px; }
@@ -1249,27 +1400,184 @@ textarea.snap-edit-input { resize: vertical; line-height: 1.5; }
 .equip-pick-qty { flex: 0 0 auto; margin-left: auto; color: var(--text-dim); font-size: 12px; }
 .equip-pick-mods { flex: 0 0 auto; font-size: 11px; color: var(--gold); }
 
-/* ===== 储物袋物品行（按钮化，点击看详情） ===== */
-/* ===== 储物袋条目：纵向多行（名称/数量 → 元信息 → 词条 → 描述） =====
-   旧实现把整条文本塞进 .kv 的 .k 列（100px 固定 + nowrap），长文本会溢出压到右侧数量上 */
-.inv-line { display: block; width: 100%; text-align: left; border: none; background: transparent; padding: 6px 8px; border-radius: 4px; }
-.inv-line + .inv-line { margin-top: 2px; }
+/* ===== 储物袋：鎏金折页（2026-09-25 改版）=====
+   一件一行 —— 左缘一道品阶色柱 + 一枚类型篆字印；中段两行（名称 / 词条 + 类型品阶）；
+   右端一枚朱砂数量印。整块清单外面套 .inv-fold（描金边框 + 极淡菱格暗纹）。
+   配色走面板自己的米黄宣纸 + 描金，**不沿用 guigu 按钮那身墨青牌面**
+   （储物袋是「一份清单」，不是「一排按钮」）。
+
+   ⚠⚠ 这一节的 `!important` 不是偷懒，是必须的：
+   guigu.css 的按钮基线 `button:not(.ghost):not(.tabs):not(.turn-ctx-menu):not(.seg-tabs)`（特异性 0,4,1）
+   带 `border: 7px double transparent`（7px 边框带照样占宽）、`border-radius: 0` 与牌面渐变，
+   悬停变体（0,6,1）还会再压一层背景。低特异性规则会被**整条吃掉** ——
+   边框宽度、内边距、圆角、背景全部不生效（表现出来就是「样式明明写了却没上去」）。
+   要压过 (0,6,1) 只能同级别选择器或 !important；同级别要在 .inv-line 上重复抄四个 :not()，
+   可读性更差，故此处统一用 !important。**改这一节时别顺手把 !important 删了。** */
+/* 顶部玉牌页签：按类型筛储物袋。只列「这一格真的有的类型」（见 InvList），
+   顺序固定走 INV_ITEM_TYPES，不随物品先后乱跳。
+   ⚠ 同样要 !important 保命：页签是 <button>，guigu 的按钮基线（含四个 :not() 的高特异性规则）
+     会把边框、内边距、圆角整条吃掉（圆角被压回 0、边框变 7px 透明）。理由同 .inv-line 那节。 */
+.inv-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+.inv-tab {
+  display: inline-flex !important; align-items: center; gap: 5px;
+  width: auto !important; min-height: 26px !important;
+  padding: 3px 11px !important;
+  border: 1px solid var(--border-gold) !important;
+  border-image: none !important;
+  border-radius: 13px !important;
+  background-image: none !important;
+  background-color: #fffcf4 !important;
+  color: var(--text-dim) !important;
+  font-size: 12px !important; line-height: 1.4 !important; letter-spacing: 0 !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  transition: background-color .16s var(--ease), color .16s var(--ease), border-color .16s var(--ease);
+}
+.inv-tab:hover { background-color: #fdf6e3 !important; color: var(--text) !important; }
+/* 选中：墨青玉底 + 描金边 + 暖金字（与左侧竹简导航同一套墨青＋描金） */
+.inv-tab.on,
+.inv-tab.on:hover {
+  background-color: #2f4a44 !important;
+  border-color: var(--gold) !important;
+  color: #f3e7c8 !important;
+}
+.inv-tab-n { font-size: 11px !important; opacity: .72; font-variant-numeric: tabular-nums; }
+.inv-tab.on .inv-tab-n { opacity: .92; }
+
+.inv-fold {
+  position: relative;
+  padding: 10px;
+  border: 1px solid var(--border-gold);
+  border-radius: var(--radius);
+  /* ⚠ 颜色写死，不要用 var(--bg-1)：guigu.css 在浅色主题下把 --bg-1 改成了按钮那身
+     淡青绿（实测 rgb(219,228,208)），照抄变量会得到一块青绿底 —— 与「米黄宣纸」的初衷正好相反。 */
+  background-color: #fffdf6;
+  /* 极淡的菱格暗纹（回纹的简化）：双向 45° 细线交叉，只在浅底上若隐若现 */
+  background-image:
+    repeating-linear-gradient(45deg, transparent 0 17px, rgba(190, 154, 69, 0.07) 17px 18px),
+    repeating-linear-gradient(-45deg, transparent 0 17px, rgba(190, 154, 69, 0.07) 17px 18px);
+}
+.inv-line {
+  position: relative;
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  overflow: hidden;
+  border: 1px solid var(--border-gold) !important;
+  border-image: none !important;
+  border-radius: 7px !important;
+  background-image: none !important;
+  background-color: #fffcf4 !important;   /* 同上：不用 var(--bg-1)（被 guigu 改成了青绿） */
+  padding: 7px 12px 7px 14px !important;
+  min-height: 50px !important;            /* 两列都在时约 50px；兜住「类型与描述都缺」的极少数条目 */
+  box-shadow: none !important;
+  transition: background-color .18s var(--ease), border-color .18s var(--ease), box-shadow .18s var(--ease);
+}
+.inv-line + .inv-line { margin-top: 6px; }
+/* 品阶色柱：贴住行左缘、贯穿整行（上下圆角由 .inv-line 的 overflow:hidden 裁出来） */
+.inv-line::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  background: #a79e8a;
+}
+/* 品阶七档（白→灰→绿→蓝→紫→橙→红，白最低红最高）—— 色柱与印面共用同一套档位，
+   改档位只需动这几行 + CharacterPanel.jsx 的 invGradeBand()，两边对不上就会「柱红印蓝」。 */
+.inv-line[data-band="w"]::before { background: #c9c2ae; }   /* 白档：米黄底上纯白立不住，用银灰代白 */
+.inv-line[data-band="g"]::before { background: #8d8578; }
+.inv-line[data-band="e"]::before { background: #3f7a5e; }
+.inv-line[data-band="b"]::before { background: #2f5e9e; }
+.inv-line[data-band="p"]::before { background: #6e3f92; }
+.inv-line[data-band="o"]::before { background: #c2661f; }
+.inv-line[data-band="r"]::before { background: #a32b24; }
+/* 高档（紫 / 橙 / 红）各加一层外晕，越往上越亮：不点开就知道哪几件是家底 */
+.inv-line[data-band="p"] { border-color: #a98fc4 !important; box-shadow: 0 0 0 1px rgba(110, 63, 146, .16), 0 2px 10px rgba(110, 63, 146, .14) !important; }
+.inv-line[data-band="o"] { border-color: #d69a68 !important; box-shadow: 0 0 0 1px rgba(194, 102, 31, .2), 0 2px 11px rgba(194, 102, 31, .18) !important; }
+.inv-line[data-band="r"] { border-color: #cf8680 !important; box-shadow: 0 0 0 1px rgba(163, 43, 36, .22), 0 2px 13px rgba(163, 43, 36, .22) !important; }
+/* 悬停：一道高光从左掠过牌面。只用 transform（不进布局、不进 React state）——
+   动 left/width 会触发重排，正是「鼠标一动整片列表在抖」那类毛病的老路。 */
+.inv-line::after {
+  content: '';
+  position: absolute; top: -60%; left: 0; width: 34%; height: 220%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .8), transparent);
+  transform: translateX(-170%) rotate(16deg);
+  pointer-events: none;
+  transition: transform .55s var(--ease);
+}
 button.inv-item-row { cursor: pointer; }
-button.inv-item-row:hover { background: rgba(212, 175, 55, 0.08); }
-button.inv-item-row:focus-visible { outline: 1px solid var(--border-gold); outline-offset: -1px; }
-.inv-line-head { display: flex; align-items: baseline; gap: 8px; }
-.inv-line-name { flex: 1 1 auto; min-width: 0; font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inv-line-qty { flex: 0 0 auto; font-size: 12px; color: var(--gold-dim); }
+button.inv-item-row:hover { background-color: #fdf6e3 !important; }
+button.inv-item-row:hover::after { transform: translateX(330%) rotate(16deg); }
+button.inv-item-row:focus-visible { outline: 1px solid var(--gold-dim); outline-offset: -2px; }
+/* 品阶篆字印：印面写品阶（篆书，「廿四」＝二十四品），底色随品阶档位走 ——
+   与左缘色柱用同一套七色，扫一眼就把「哪几件贵」和「贵到几品」对上。
+   ⚠ 'MortalSeal' 是上面重建的秦小篆字库：只收了 13 个字（一~九、十、廿、卅、品）。
+     字库外的字会掉回 var(--font-serif)（宋体），看起来就是「两种字体拼在一枚印上」。
+     印面由 invGradeSeal() 生成，正常只会出现字库内的字。 */
+.inv-seal {
+  flex: 0 0 auto;
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border-gold);
+  border-radius: 4px;
+  background: var(--gold-bg);
+  color: var(--gold-dim);
+  font-family: 'MortalSeal', var(--font-serif);
+  font-size: 23px; line-height: 1;
+  user-select: none;
+  /* 刻痕感：内圈一道浅亮线，像印面凹下去一块 */
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22);
+}
+/* 两位数品阶（「廿九」「卅六」）：缩字号，两个字并排塞进 30px 的印里。
+   ⚠ 字号由**实测**定，不是估的：篆书字库每个字的 advance 都是满 1em（1000/1000），
+     所以「字号 × 字数」就是文字盒宽度，30px 的方框减去两侧 1px 边框只剩 28px 可用。
+     14.5px×2 = 29px 直接顶到边（实测左右各只剩 1px），视觉上就是「挤」；
+     改成 12.5px×2 = 25px，左右各留 2.5px，才呼吸得过来。
+     单字印（一~十品）维持 23px：一个字的墨迹高约 0.7~0.95em，在 30px 里占七成，
+     汉印「满白文」要的就是这个满劲。 */
+.inv-seal[data-len="2"] { font-size: 12.5px; letter-spacing: 0; }
+/* 七档印色：浅档（白/灰）用深字，其余用白字（对比度都要够，红底白字别省） */
+.inv-line[data-band="w"] .inv-seal { background: #e7e2d6; border-color: #c9c2ae; color: #5f5949; }
+.inv-line[data-band="g"] .inv-seal { background: #8d8578; border-color: #7b7367; color: #fffdf7; }
+.inv-line[data-band="e"] .inv-seal { background: #3f7a5e; border-color: #356a51; color: #f2fbf5; }
+.inv-line[data-band="b"] .inv-seal { background: #2f5e9e; border-color: #28507f; color: #eef5ff; }
+.inv-line[data-band="p"] .inv-seal { background: #6e3f92; border-color: #5d367c; color: #f8f0ff; }
+.inv-line[data-band="o"] .inv-seal { background: #c2661f; border-color: #a8561a; color: #fff6ec; }
+.inv-line[data-band="r"] .inv-seal { background: #a32b24; border-color: #8c241e; color: #fff4f1; }
+/* 两列两行：左＝名称 / 类型·品阶，右＝词条 / 描述。
+   两列各自**恒占两行**（取不到值时由 JSX 塞不换行空格占位）⇒ 行高不随数据长短变化，
+   鼠标划过不会因为某条描述特别长而让整列跳动（战斗界面图例就是栽在这上面）。 */
+.inv-col { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* ⚠ 左列必须 flex: 0 0 auto（**不许收缩**）：右列描述超长时，若左列可收缩，
+   名称会被挤成省略号（实测「测试·红卅四品」在超长描述那行被压成「测试·…」）。
+   左列保住自己的宽度，多余的由右列吃掉 —— 右列本来就带 min-width: 0 + overflow。 */
+.inv-col-l { flex: 0 0 auto; min-width: 0; max-width: 46%; }
+.inv-col-r { flex: 1 1 auto; min-width: 0; }
+.inv-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.inv-line-name { flex: 0 1 auto; min-width: 0; font-size: 13.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-kind { font-size: 11.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 朱砂数量印。
+   ⚠ color 必须 !important：guigu.css **在 theme.css 之后加载**，它那条
+   `.inv-line-qty { color: var(--gold-dim) }` 同特异性、后出现 ⇒ 会把白字压成深金，
+   在朱砂红底上等于看不见。 */
+.inv-line-qty {
+  flex: 0 0 auto; align-self: center;
+  padding: 3px 8px; border-radius: 3px;
+  background: #a8332b;
+  color: #fff8ec !important;
+  font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
 /* 「已装备」标注：储物袋数量含穿在身上的那件，同一件物品会在装备栏与储物袋各露一次面，标出来免得被当成两件 */
 .equipped-badge {
   flex: 0 0 auto; font-size: 11px; line-height: 1.5; padding: 0 5px; border-radius: 3px;
   color: var(--gold); border: 1px solid var(--gold-dim); white-space: nowrap;
 }
-.inv-line-where { font-size: 11px; color: var(--gold-dim); }
 .inv-line-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 3px; }
-.inv-line-src { font-size: 11px; color: var(--text-faint); overflow-wrap: anywhere; }
-.inv-line-mods { display: block; padding-top: 2px; font-size: 12px; color: var(--gold); }
-.inv-line-desc { display: block; padding-top: 2px; font-size: 12px; color: var(--text-dim); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.inv-line-mods { font-size: 12.5px; color: var(--gold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-mods-none { color: var(--text-faint); font-size: 12px; }
+/* 描述与来源都收成一行、超出省略：行高固定，鼠标划过不会因为某条描述特别长而整列跳动
+   （战斗界面图例就是栽在这上面）。完整描述点开详情弹窗看。 */
+.inv-line-desc { display: block; padding-top: 1px; font-size: 11.5px; color: var(--text-dim); line-height: 1.5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ===== 快照属性编辑（当前值 / 上限 双输入） ===== */
 .attr-edit-nums { display: flex; align-items: center; gap: 4px; }
@@ -1292,19 +1600,37 @@ button.inv-item-row:focus-visible { outline: 1px solid var(--border-gold); outli
 .inv-add-form .inv-edit-appearance { width: 100%; }
 
 /* ===== 正文着色词表（设置 → 正文规则与文风） ===== */
-.cp-head { display: flex; gap: 8px; font-size: 11px; color: var(--text-faint); padding: 0 0 4px; }
-.cp-head .cp-h-label { flex: 0 0 96px; }
-.cp-head .cp-h-val { flex: 0 0 168px; }
+.cp-head { display: flex; gap: 6px; font-size: 11px; color: var(--text-faint); padding: 0 0 4px; }
+.cp-head .cp-h-label { flex: 0 0 84px; }
+.cp-head .cp-h-val { flex: 0 0 148px; }
 .cp-head .cp-h-desc { flex: 1 1 auto; }
-.cp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.cp-head .cp-h-fix { flex: 0 0 104px; }
+/* 空占位：让「用途提示」的 flex:1 与 cp-row 里 cp-desc 的宽度对齐（后面还有固定宽的 cp-fix 与按钮） */
+.cp-head .cp-h-tail { flex: 0 0 auto; }
+.cp-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .cp-row .cp-swatch {
   flex: 0 0 18px; width: 18px; height: 18px; border-radius: 4px;
   border: 1px solid var(--border); background-clip: padding-box;
 }
-.cp-row .cp-name { flex: 0 0 96px; width: 96px; }
-.cp-row .cp-pick { flex: 0 0 34px; width: 34px; height: 28px; padding: 2px; cursor: pointer; }
-.cp-row .cp-val { flex: 0 0 118px; width: 118px; font-family: var(--mono, monospace); font-size: 12px; }
+.cp-row .cp-name { flex: 0 0 84px; width: 84px; }
+.cp-row .cp-pick { flex: 0 0 32px; width: 32px; height: 28px; padding: 2px; cursor: pointer; }
+.cp-row .cp-val { flex: 0 0 108px; width: 108px; font-family: var(--mono, monospace); font-size: 12px; }
 .cp-row .cp-desc { flex: 1 1 auto; min-width: 0; }
+/* 「这个色在某主题下显示成什么」的只读小样：色块 + 色值文本。**淡墨/浓墨各一个**。
+   ⚠ 它必须看起来**不像输入框**（否则玩家会去点它）。用虚线框 + 不透明底把它跟
+     左边那几个真输入框分开。flex 给固定宽度，跟 cp-head 里对应那格对齐。 */
+.cp-row .cp-fix {
+  flex: 0 0 104px; width: 104px;
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--mono, monospace); font-size: 11px;
+  color: var(--text-dim);
+  border: 1px dashed var(--border); border-radius: 4px;
+  padding: 5px 5px; background: none; cursor: default;
+}
+.cp-row .cp-fix > i {
+  flex: 0 0 14px; width: 14px; height: 14px; border-radius: 3px;
+  border: 1px solid var(--border); display: inline-block;
+}
 .cp-row .cp-del { flex: 0 0 auto; }
 .cp-preview-box { margin-top: 8px; }
 .cp-preview-box > summary { cursor: pointer; font-size: 13px; color: var(--gold-dim); }
@@ -1317,6 +1643,33 @@ button.inv-item-row:focus-visible { outline: 1px solid var(--border-gold); outli
 .cp-probe input { width: 150px; font-family: var(--mono, monospace); font-size: 12px; }
 .cp-probe .cp-ok { font-size: var(--fs-sm); font-weight: 600; }
 .cp-probe .cp-no { font-size: var(--fs-sm); color: var(--text-faint); }
+/* 双主题并排预览。
+   ⚠⚠ 这两块的底色必须**写死**，绝不能用 var(--bg-*)！因为它们要同时展示两套主题，
+      若走主题变量，两块会跟着当前主题变成同一个颜色，并排就没意义了。
+      浅底取淡墨正文纸面、深底取浓墨正文纸面（与运行时实际底色一致，见 guigu.css 的
+      §1b --bg-1 与 §1 --bg-1 上盖的那层纸罩）。 */
+.cp-preview-duo { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); margin-top: 6px; }
+@media (max-width: 720px) { .cp-preview-duo { grid-template-columns: 1fr; } }
+.cp-card {
+  padding: var(--s3); border-radius: var(--radius-sm); border: 1px solid var(--border);
+  font-size: var(--fs-md); line-height: 1.9; font-family: var(--font-serif);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.cp-card--light { background: #EEF2E6; }   /* 淡墨：缥碧宣纸 */
+.cp-card--dark { background: #102E33; }    /* 浓墨：螺子黛深青 */
+.cp-card-title {
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: var(--fs-xs); letter-spacing: 1px; margin-bottom: 4px; opacity: .8;
+}
+.cp-card--light .cp-card-title { color: #42544B; }
+.cp-card--dark .cp-card-title { color: #87A7A6; }
+.cp-demo-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-demo-line .cp-weak {
+  font-style: normal; font-size: var(--fs-xs); margin-left: 6px;
+  font-family: var(--font-ui, system-ui, sans-serif);
+}
+.cp-card--light .cp-weak { color: #8A5A18; }   /* 浅底上用深琥珀，自身也要看得清 */
+.cp-card--dark .cp-weak { color: #D8A44E; }
 .hint code { font-family: var(--mono, monospace); font-size: 11px; background: var(--bg-2); padding: 0 3px; border-radius: 3px; }
 
 /* ===== 注入顺序（设置 → 注入顺序） ===== */
@@ -1329,8 +1682,13 @@ button.inv-item-row:focus-visible { outline: 1px solid var(--border-gold); outli
 .io-empty { font-size: var(--fs-xs); color: var(--text-faint); padding: 4px 0; }
 .io-item { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-2); padding: 6px 8px; }
 .io-item-top { display: flex; align-items: center; gap: 6px; }
-.io-item-name { flex: 1 1 auto; min-width: 0; font-size: var(--fs-sm); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 区块标题：占满整行剩下宽度。**不写省略号** —— 名字最长也就 9 个字，
+   宁可换行也别把字藏起来（用户报过「只有省略号了」）。 */
+.io-item-name { flex: 1 1 auto; min-width: 0; font-size: var(--fs-sm); color: var(--text); line-height: 1.35; word-break: break-word; }
 .io-item-btns { flex: 0 0 auto; display: flex; gap: 2px; }
+/* ⚠ 这里的尺寸**不管用**：guigu.css 的 `button:not(...)` 基线（特异性 0,4,1）
+   带了 `border: 7px double transparent` 和 `padding: 0 14px`，会把按钮钳成 42px。
+   真正生效的那条在 guigu.css 的「注入顺序小箭头」一节（含实测数据）。 */
 .io-mv { padding: 0; width: 22px; height: 22px; min-height: 22px; font-size: 10px; line-height: 1; border-radius: 4px; box-shadow: none; }
 .io-item-desc { font-size: var(--fs-xs); color: var(--text-faint); line-height: 1.5; margin-top: 3px; }
 .io-foot { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; margin-top: var(--s3); }
@@ -1507,7 +1865,25 @@ button.inv-item-row:focus-visible { outline: 1px solid var(--border-gold); outli
 /* 三维起不来时的兜底格盘：样子朴素，但照样点得着、走得动 ——
    战斗不能因为「画不出来」就打不开 */
 .bs3-fallback { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s3); }
-.bs3-fb-note { font-size: var(--fs-xs); color: var(--text-dim); text-align: center; }
+/* 三维起不来时的那条说明。
+   它不是装饰文字，是"为什么没画面 ＋ 怎么办"的唯一出口，所以按**名字牌**那套办法处理：
+   自带浅底片 ＋ 深字 —— 不管战场底色是宣纸还是暗色都读得清。
+   （原先取 --text-dim 且只有 12px，实测在浅色战场底上几乎看不见；2026-09-24 连同「重试」一起改。）
+   ⚠ 深字写死 #38321f，不取 var(--text)：底片是浅的，暗色主题那支亮字压上去会掉到看不见。
+   与 guigu.css 里 .bs3-tag .bs3-name 的取舍同源。 */
+.bs3-fb-note {
+  display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+  max-width: 94%; margin: 0 auto; padding: 6px 12px;
+  font-size: var(--fs-sm); line-height: 1.7; text-align: center;
+  color: #38321f; background: rgba(250, 244, 230, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.14); border-radius: 4px;
+}
+.bs3-fb-retry {
+  flex: 0 0 auto; padding: 2px 10px;
+  font-size: var(--fs-xs); line-height: 1.6; color: inherit;
+  background: transparent; border: 1px solid currentColor; border-radius: 4px; cursor: pointer;
+}
+.bs3-fb-retry:hover { background: rgba(0, 0, 0, 0.07); }
 .bs3-fb-grid {
   flex: 1 1 auto; min-height: 0;
   display: grid; gap: 1px; aspect-ratio: 1 / 1; margin: 0 auto; max-width: 100%;
@@ -1516,10 +1892,41 @@ button.inv-item-row:focus-visible { outline: 1px solid var(--border-gold); outli
 .bs3-fb-cell { border: 0; padding: 0; border-radius: 0; cursor: pointer; }
 .bs3-fb-cell:hover { outline: 2px solid var(--gold); outline-offset: -2px; }
 
+/* 瞄准预估小牌：跟着鼠标走，不进图例 ------------------------------------
+   为什么不做进图例（旧写法）：图例在地图区里是**普通流元素**，文字一长就折行、
+   自己长高，把三维画布挤矮 35px；画布一改尺寸，镜头（比例 / 位置）就得整个重算，
+   玩家看到的就是「鼠标划到敌人身上，整幅画面跳一下」。
+   做成浮层之后图例文字恒定，抖动从根上没有了，读数还正好落在瞄准点旁边。
+   深底浅字 ＋ 镶边：它要压在宣纸色和暗色两种战场底上都读得清，所以颜色写死、
+   不跟主题变量走。 */
+.bm-aim {
+  position: absolute; left: 0; top: 0; z-index: 6;
+  pointer-events: none;                     /* 不许挡住准星，否则点不到底下的敌人 */
+  padding: 3px 9px; border-radius: var(--radius-sm);
+  background: rgba(24, 18, 10, 0.88);
+  border: 1px solid #c3ab72;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
+  font-size: var(--fs-xs); line-height: 1.5; color: #f4ead2;
+  white-space: nowrap;
+  opacity: 0; visibility: hidden;
+  transition: opacity 0.12s ease;
+  will-change: transform;
+}
+.bm-aim.on { opacity: 1; visibility: visible; }
+.bm-aim b { color: #f0c063; font-weight: 700; }
+
 /* 图例 */
 .battle-map-legend {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s3);
   flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-dim);
+  /* ⚠ 高度**必须与文字长度无关**。
+     它在 .battle-map-wrap 里是**普通流元素**：提示文字一变长（走位提示 47 字 ↔ 瞄准提示 19 字）
+     就折行、自己长高 35px，把三维画布挤矮；画布一改尺寸，镜头（比例 / 位置）就得整个重算
+     —— 玩家看到的就是「鼠标划到敌人身上 / 点到技能的瞬间，整幅画面跳一下」。
+     min-height 取实测「两行」高度（12px 字号下 69px ⇒ 5.75em），于是无论一行两行都占同样位置。
+     align-content 让它在一行时竖直居中，不至于贴顶留出一大块空。改字号要跟着改折算比例。 */
+  min-height: 5.75em;
+  align-content: center;
 }
 .bm-hint { min-width: 0; }
 /* 视角控件：放大缩小 / 左右旋转 / 复位（滚轮缩放、左键拖动旋转在 .battle-stage 上） */
@@ -1640,12 +2047,17 @@ button.inv-item-row:focus-visible { outline: 1px solid var(--border-gold); outli
   font-size: var(--fs-xs);
   background: var(--bg-2); border: 1px solid var(--border); color: var(--text-dim);
   border-radius: var(--radius-sm); cursor: pointer;
+  font-family: inherit;
+  /* ⚠ 标签页是**小切片**，不要手绘外框（会把字挤没）。
+     基线已经把 .tabs/.seg-tabs 排除了，但 .bp-tabs 是另一个类名，
+     所以这里显式撤销 border-image。 */
+  border-image: none;
 }
-.bp-tabs button.on { background: var(--gold-bg); border-color: var(--border-gold); color: var(--gold); font-weight: 700; }
+.bp-tabs button.on { background: var(--gold-bg); border-color: var(--gold-dim); color: var(--gold); font-weight: 700; }
 
 .bp-list {
   /* 装不下就这块自己滚（按钮不许被压扁，见下面 .bp-act 的注释）。
-     ⚠️ min-height 必须是 0（以前写的 108px）：它会把整个面板顶破，
+     ⚠️ min-height 必须是 0（写成 108px 会把整个面板顶破，
      内容溢出到战报上、按钮被压在战报底下点不着。矮屏宁可列表矮一点、滚动看，
      也绝不能让面板溢出。 */
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
@@ -1681,7 +2093,7 @@ button.inv-item-row:focus-visible { outline: 1px solid var(--border-gold); outli
   font-size: var(--fs-xs); color: var(--text-dim);
 }
 /* 本回合还剩些什么（还能出手 / 已出手）与「结束回合」按钮 —— 2026-09-19 新增。
-   起因：出手不再自动结束回合，收手全靠这个按钮，所以它必须一眼看得见（金色、比其他按钮重），
+   起因：出手不自动结束回合，收手全靠这个按钮，所以它必须一眼看得见（金色、比其他按钮重），
    而「已出手」也要写清楚，否则玩家会懵「我怎么打不了了」。 */
 .bp-turn-state { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .bp-flag {
@@ -1790,7 +2202,7 @@ button.bp-end:hover { background: var(--gold-dark); color: var(--bg-0); }
   .battle-body { flex-direction: column; overflow-y: auto; }
   .battle-map-wrap { flex: 0 0 auto; }
   /* 窄屏时整块战场被压扁得厉害，给个下限高度，免得三维场景只剩一条缝。
-     （不再需要给立物留头顶空间了：相机自己会把整块棋盘框进画面） */
+     （给立物留的头顶空间由相机处理：它自己会把整块棋盘框进画面） */
   .battle-stage { min-height: 46vh; }
   .battle-side { flex: 0 0 auto; border-left: none; border-top: 1px solid var(--border); }
 }

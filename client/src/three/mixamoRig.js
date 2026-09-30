@@ -36,12 +36,6 @@ export const ANIM_SOURCE = {
   down: 'death',            // 倒下（沿用原有素材）
 };
 
-/** 循环播放的动作。其余一律「播一遍停住」。 */
-export const LOOPING = new Set(['idle', 'run', 'blockHold']);
-
-/** 播一遍就结束的动作。 */
-export const ONE_SHOT = new Set(['melee', 'ranged', 'block', 'down']);
-
 /** 移动用哪段动作。 */
 export const RUN_ANIM = 'run';
 
@@ -51,9 +45,6 @@ export const RUN_ANIM = 'run';
  *   近战 57.5%（右拳伸到最远）／远程 50.4%（掌推出去、法力离体）／防御 23.8%（护架抬到位）。
  */
 export const IMPACT_AT = ACTION_IMPACT;
-
-/** 护架保持的那一帧取整段的几成（＝出招曲线里护架抬到最高的那一刻）。 */
-export const BLOCK_HOLD_AT = IMPACT_AT.block;
 
 const fbxCache = new Map();
 

@@ -2,6 +2,7 @@
 import { computeAttrs, rootDisplayName, personalityTraitText } from '../data/gameData.js';
 import { matchWorldbook, PLOT_STYLES } from '../saveModel.js';
 import { assemblePrompt } from './promptSystem.js';
+import { stripOptions } from '../components/StoryRenderer.jsx';
 
 const WEATHERS = ['晴空万里', '薄云蔽日', '阴云低垂', '细雨如丝', '狂风大作', '浓雾弥漫', '瑞雪纷飞'];
 const EVENTS = [
@@ -143,20 +144,11 @@ export function turnNarrative(save, userAction, worldbook = []) {
   return parts.join('\n');
 }
 
-// 快捷行动生成
-export function quickActionNarrative(save, mode) {
-  const map = {
-    '静观其变': '收敛气息，静观四周变化，不主动涉险。',
-    '顺势而为': '审时度势，循着眼前的机缘与线索自然行事。',
-    '时光流转': '寻一处安稳之地打坐调息，任凭时光流转，专注修炼与恢复。'
-  };
-  return map[mode] || map['顺势而为'];
-}
-
 // 构建 AI 提示词（AI 模式用）—— 由提示词体系（promptSystem）按预设段落与占位符组装
 export function buildAIPrompt(save, userAction, historyText, settings) {
-  const storyText = historyText || (save.story || []).slice(-3).map(b => b.text).join('\n---\n');
-  return assemblePrompt(settings, save, userAction, storyText);
+  // 历史同样剥掉 AI 自拟的推进选项（判据同 GameDashboard 主链路）
+  const clean = stripOptions(historyText || (save.story || []).slice(-3).map(b => b.text).join('\n---\n'));
+  return assemblePrompt(settings, save, userAction, clean);
 }
 
 // 构建剧情演化「导演层」提示词（生成当前剧情指导）

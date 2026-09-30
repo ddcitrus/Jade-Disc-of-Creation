@@ -6,6 +6,7 @@
 //   ② 修改语句：parseEditBlock 逐行解析 + 校验（错误带行号）
 //               applyEdits 把语句写进老结构快照
 //   ③ 文本渲染：v2SnapshotText / v2BundleText（注入提示词用）
+// 字段全表、以及「哪些字段建议注入正文」见同目录《快照字段与注入清单.md》。
 import { makeEmptySnapshot, attrRows } from './snapshotSchema.js';
 
 /* ================= 一、装备槽位 ================= */
@@ -69,7 +70,9 @@ export {
   gradeToText, parseGrade, parseGradeStrict, normalizeGrade, LEGACY_GRADE_MAP,
   parseAttrText, attrTextFromMods, GRADE_CANDIDATES,
 } from './gradeUtils.js';
-import { normalizeGrade, parseAttrText, attrTextFromMods, parseGrade, parseGradeStrict } from './gradeUtils.js';
+import { normalizeGrade, parseAttrText, attrTextFromMods, parseGrade, parseGradeStrict, gradeWithRealm } from './gradeUtils.js';
+// 「修炼倍率」渲染时要现算（见 v2SnapshotText），和属性行同口径，不读落盘缓存
+import { cultivationRate } from './cultivationParams.js';
 import { resolveTraitMods } from './traitLibrary.js';
 import {
   buildSkill, buildSkillList, skillToV2, skillFromV2, skillCoefText, skillLineText,
@@ -79,6 +82,9 @@ import {
 // 交给 AI 照抄的新角色快照模板原文在 ../prompts/templates.js（本文件只做校验与转换）
 import { NEW_CHAR_V2_TEMPLATE } from '../prompts/templates.js';
 export { NEW_CHAR_V2_TEMPLATE };
+// 性格：五套框架的编号表与翻译器在 ./personalityCodex.js（本文件不反向依赖，避免成环）
+import { parsePersonalityText, normalizePersonalityText, personalityShortText } from './personalityCodex.js';
+export { normalizePersonalityText, personalityShortText } from './personalityCodex.js';
 
 /* ================= 四、储物袋物品 ================= */
 
@@ -86,7 +92,6 @@ export const V2_ITEM_FIELDS = ['名称', '类型', '子类', '数量', '品阶',
 export const V2_ITEM_TYPES = ['消耗品', '珍贵物品', '素材', '杂物', '装备', '法宝', '功法'];
 export const V2_ITEM_SUBTYPES = ['武器', '防具', '饰品'];
 export const ITEM_SEP = '｜';          // 全角竖线，AI 写物品多字段时的分隔符
-export const V2_ITEM_SEP_SHORT = '|';  // 半角竖线：宽容接受，自动归一
 
 // v2 物品 → 老结构物品
 export function v2ItemToLegacy(it) {
@@ -133,10 +138,52 @@ export function legacyItemToV2(it) {
   };
 }
 
-// 物品行文本：8 字段用全角竖线拼接（空字段保留占位）
+// 物品行文本：8 字段用全角竖线拼接（空字段保留占位）。
+// 「品阶」一格由程序补上对应境界（「二十品（大乘初期）」）——
+// 正文与演化两个阶段的 AI 看到的储物袋就是这一行，只给「二十品」它无从判断这件东西的分量，
+// 只能按剧情需要自己编一个档次。物品本体上的 grade 字段不变，注记只在这一行里长出来。
 export function v2ItemText(it) {
   const o = it || {};
-  return V2_ITEM_FIELDS.map(f => String(o[f] ?? '')).join(ITEM_SEP);
+  return V2_ITEM_FIELDS
+    .map(f => (f === '品阶' ? gradeWithRealm(o[f]) : String(o[f] ?? '')))
+    .join(ITEM_SEP);
+}
+
+// 承诺行：三段用全角竖线分隔，顺序固定「要做什么｜欠了谁｜什么时候到期」。
+// 与储物袋同一套符号，AI 已经熟；缺哪段就留空段，只写内容也认。
+// ⚠ 落盘保留这一行原文，不拆成对象 —— 快照页那格是可编辑字符串，
+//   存对象会让手改那一格变成改 JSON，也会踩「对象被当子节点渲染」那个老坑
+//   （见 2026-09-26 React error #31）。要结构化就读 parsePromise()。
+// 半角竖线一并收成｜：AI 偶尔写错，写错就当段落划不开，整条挤在第一段里。
+export function parsePromise(text) {
+  const raw = String(text ?? '').trim().replace(/\|/g, ITEM_SEP);
+  const seg = raw ? raw.split(ITEM_SEP).map(s => s.trim()) : [];
+  return {
+    task: seg[0] || '',
+    owedTo: seg.length > 1 ? seg[1] : '',
+    due: seg.length > 2 ? seg.slice(2).join(ITEM_SEP) : '',
+  };
+}
+
+// 承诺行归一：半角竖线收成全角、每段去首尾空白、末尾空段去掉。
+// ⚠ 中间空段保留 —— 「内容｜｜三日内」是有意义的（漏了欠谁那份），删掉它会把到期挪成欠谁。
+// 写入口（applyEdits）与读档口（validateV2Snapshot）共用，保证三种来源同口径：
+// AI 写的、界面上手改的、老存档里躺着的。
+export function normalizePromiseText(text) {
+  const p = parsePromise(text);
+  if (!p.task) return '';
+  return [p.task, p.owedTo, p.due].join(ITEM_SEP).replace(/｜+$/, '');
+}
+
+// 承诺行给人看的样子：「要做什么（欠 陆云芝 · 三日内）」，缺哪段省哪段。
+// 界面（NPC 基本信息页）走这一个读法，别各自拼串。
+export function promiseSummaryText(text) {
+  const p = parsePromise(text);
+  if (!p.task) return '';
+  const bits = [];
+  if (p.owedTo) bits.push(`欠 ${p.owedTo}`);
+  if (p.due) bits.push(p.due);
+  return bits.length ? `${p.task}（${bits.join(' · ')}）` : p.task;
 }
 
 /* ================= 五、基础值转换工具 ================= */
@@ -211,7 +258,7 @@ export function equipToV2(eq) {
   out.腿部 = equipValueName(pick(a, 'legs')) || '';
   out.足部 = equipValueName(pick(a, 'feet')) || '';
   out.披风 = equipValueName(pick(a, 'cloak')) || '';
-  // 内衬 = 老 inner + 老 underwear（内衣格已删，归并进内衬，避免数据丢失）
+  // 内衬 = inner + underwear（内衣格不存在，老数据归并进内衬，避免数据丢失）
   const innerText = [equipValueName(pick(a, 'inner')), equipValueName(pick(a, 'underwear'))].filter(Boolean).join('、');
   out.内衬 = innerText;
   if (typeof a === 'string' && !out.甲身) out.甲身 = a;
@@ -238,6 +285,19 @@ function relToV2(rows) {
   }).filter(x => x.对象);
 }
 
+/**
+ * 身份履历 → 展示文本：`外门弟子 → 内门弟子`。
+ * 快照里 identity.identityRoles 是**数组**（最早 → 当前）：建号时由创建页选的出身打底，
+ * 之后 AI 每轮用「身份」修改语句追加一环（旧式 role. 指令写的是同一格）。
+ * ⚠ 「身份」这个字段从前只有主角有值（建号时按创建页选的出身打底），NPC 那格永远是空的 ——
+ * 因为全项目唯一能写它的旧式 role. 指令一次都没教给过 AI。2026-09-28 起「身份」进了 v2 修改语句表，
+ * 于是两边都能写。写入口共三处，都在本文件：applyEdits 的 case、v2ToLegacy、emptyV2 的骨架。
+ */
+export function rolesText(roles) {
+  if (!Array.isArray(roles)) return '';
+  return roles.map(r => String(r ?? '').trim()).filter(Boolean).join(' → ');
+}
+
 export function legacyToV2(snap) {
   if (!snap || typeof snap !== 'object') return null;
   const idt = snap.identity || {};
@@ -256,6 +316,7 @@ export function legacyToV2(snap) {
     种族: String(idt.race || ''),
     境界: String(idt.realm || ''),
     灵根: String(idt.linggen || ''),
+    身份: rolesText(idt.identityRoles),
     年龄: idt.age == null ? 0 : numOr(idt.age),
     寿元: idt.shouyuan == null ? 0 : numOr(idt.shouyuan),
     状态: String((snap.status || {}).current || ''),
@@ -278,6 +339,14 @@ export function legacyToV2(snap) {
     内心: String(bio.innerThought || ''),
     短期目标: String(bio.shortTermGoal || ''),
     长期目标: String(bio.longTermGoal || ''),
+    // 性格：**只给 NPC**。主角那一份由性格页那 16 个滑块定（注入占位符「人格核心」读的就是它），
+    // 快照里那句是 v1 时代留下的旧串，与滑块说的常常不是一回事 —— 灌给 AI 只会让它照着一句过时的话写人。
+    // 值落盘时已经是中文短版（AI 写编码、程序翻人话）；老存档里的中文短句认不出编码，原样保留。
+    性格: snap.kind === 'player' ? '' : normalizePersonalityText(idt.personality),
+    // 承诺三槽位（只 NPC 有内容；主角那三格永远是空的，注入时会被 v2SnapshotText 跳过）
+    承诺1: String(bio.promise1 || ''),
+    承诺2: String(bio.promise2 || ''),
+    承诺3: String(bio.promise3 || ''),
     // 技能：五字段（名称/类型/品阶/伤害属性/效果）+ 程序按角色池算好的绝对值。
     // 耗灵力与回复量写**绝对数字**（灵力/气血上限 × 品阶比例），AI 只照抄、不做除法；
     // 角色晋阶、池变大后，下一次生成快照会自动给出新数字——技能本身不用改。
@@ -338,7 +407,7 @@ export function applyEquipToLegacy(eq, v2Equip, inventory) {
     } else {
       const obj = cur && typeof cur === 'object' && !Array.isArray(cur) ? { ...cur } : {};
       obj[k] = value;
-      // 内衣格已删：老键一并清掉，避免界面外残留
+      // 内衣格不存在：老键一并清掉，避免界面外残留
       if (obj.underwear !== undefined) obj.underwear = null;
       if (obj.body !== undefined) obj.body = null;
       out.armor = obj;
@@ -385,6 +454,16 @@ export function v2ToLegacy(v2, base = null) {
   if (v2.种族 != null) identity.race = String(v2.种族);
   if (v2.境界 != null) identity.realm = String(v2.境界);
   if (v2.灵根 != null) identity.linggen = String(v2.灵根);
+  // 身份是**履历**（数组，最早 → 当前），不是单值：追加一环，与末项相同就忽略 ——
+  // AI 没变也会把同一个身份重写一遍，不去重就会攒成一长串一样的。
+  if (v2.身份 != null) {
+    const v = String(v2.身份).trim();
+    if (v) {
+      const roles = Array.isArray(identity.identityRoles) ? [...identity.identityRoles] : [];
+      if (roles[roles.length - 1] !== v) roles.push(v);
+      identity.identityRoles = roles;
+    }
+  }
   if (v2.年龄 != null) identity.age = Math.max(0, numOr(v2.年龄, identity.age || 0));
   if (v2.寿元 != null) identity.shouyuan = Math.max(0, numOr(v2.寿元, identity.shouyuan || 0));
   if (v2.状态 != null) status.current = String(v2.状态);
@@ -413,6 +492,17 @@ export function v2ToLegacy(v2, base = null) {
   if (v2.内心 != null) bio.innerThought = String(v2.内心);
   if (v2.短期目标 != null) bio.shortTermGoal = String(v2.短期目标);
   if (v2.长期目标 != null) bio.longTermGoal = String(v2.长期目标);
+  // 性格：只落 NPC（主角的性格由性格页那 16 个滑块定）。写进来的可能是编码、也可能是中文短版，
+  // 一律归一成中文短版再落盘 —— 每次演化 AI 都要在【当前各角色快照】里读它，存人话它才好对照。
+  if (kind !== 'player' && v2.性格 != null) identity.personality = normalizePersonalityText(String(v2.性格));
+  // 承诺三槽位：只落 NPC（主角的承诺由玩家自己掌握）。「空」是清空口令，与 applyEdits 同一口径。
+  if (kind !== 'player') {
+    for (const [cn, key] of [['承诺1', 'promise1'], ['承诺2', 'promise2'], ['承诺3', 'promise3']]) {
+      if (v2[cn] == null) continue;
+      const raw = String(v2[cn]).trim();
+      bio[key] = (raw === '空' || raw === '无' || raw === '-') ? '' : raw;
+    }
+  }
   // 技能：AI 写的 v2 项一律交给 skillCodex 重算，不信 AI 自己填的系数数字
   if (Array.isArray(v2.技能)) snap.skills = buildSkillList(v2.技能);
   if (Array.isArray(v2.特质)) {
@@ -447,6 +537,8 @@ export const EDIT_FIELDS = {
   种族: { type: 'string', ops: ['='] },
   境界: { type: 'string', ops: ['='] },
   灵根: { type: 'string', ops: ['='] },
+  // 身份：只写当前的那一个，程序把它追加进履历（identityRoles）；不能加减，故只收「=」
+  身份: { type: 'string', ops: ['='] },
   年龄: { type: 'int', ops: ['=', '+=', '-='], min: 0 },
   寿元: { type: 'int', ops: ['=', '+=', '-='], min: 0 },
   状态: { type: 'string', ops: ['='] },
@@ -475,6 +567,14 @@ export const EDIT_FIELDS = {
   内心: { type: 'string', ops: ['='] },
   短期目标: { type: 'string', ops: ['='] },
   长期目标: { type: 'string', ops: ['='] },
+  // 性格：只给 NPC。值是五段定长编码（54｜32｜2211｜010001｜021805，全角竖线分段），
+  // 程序逐段校验后翻成中文短版落盘；也可以直接写中文短版（老档、玩家手改）。不能加减，故只收「=」
+  // **五段都要写满**（2026-09-29 定）：缺段不只是少显示一项，是那套框架没判断 —— 由 applyEdits 报出来。
+  性格: { type: 'string', ops: ['='] },
+  // 承诺三槽位：只给 NPC。写「空」表示腾出槽位（办完／食言／作废）；不能加减，故只收「=」
+  承诺1: { type: 'string', ops: ['='] },
+  承诺2: { type: 'string', ops: ['='] },
+  承诺3: { type: 'string', ops: ['='] },
   技能: { type: 'skillList', ops: ['+=', '-='] },
   特质: { type: 'traitList', ops: ['+=', '-='] },
 };
@@ -811,6 +911,20 @@ export function applyEdits(snapIn, edits) {
           const n = e.op === '=' ? Number(e.value) : e.op === '+=' ? cur + Number(e.value) : cur - Number(e.value);
           snap.identity.shouyuan = Math.max(0, Math.round(n)); done(e, `寿元=${snap.identity.shouyuan}`); break;
         }
+        case '身份': {
+          // 身份是**履历**（最早 → 当前），不是单值：每次写进来追加一环。
+          // 与末项相同就忽略 —— 身份没变的回合 AI 也会重述一遍，不去重会攒成一长串一样的。
+          // 读它的地方共两处：界面角色页「身份 / 种族」行与快照页「身份序列」、注入给 AI 的角色卡「身份」行。
+          const v = String(e.value).trim();
+          if (!v) { skipped.push(`[${e.id}] 身份为空，未写入`); break; }
+          const roles = Array.isArray(snap.identity.identityRoles) ? [...snap.identity.identityRoles] : [];
+          // 与当前身份相同 ⇒ 不算一次改动（否则每轮重述同一身份都会进「本轮更新」报告）
+          if (roles[roles.length - 1] === v) { skipped.push(`[${e.id}] 身份与当前相同，未追加`); break; }
+          roles.push(v);
+          snap.identity.identityRoles = roles;
+          done(e, `身份 ⇒ ${v}`);
+          break;
+        }
         case '状态': snap.status.current = e.value; done(e, `状态=${e.value}`); break;
         case '气血':
         case '法力': {
@@ -941,6 +1055,35 @@ export function applyEdits(snapIn, edits) {
         case '内心': snap.bio.innerThought = e.value; done(e, '内心已更新'); break;
         case '短期目标': snap.bio.shortTermGoal = e.value; done(e, `短期目标=${e.value}`); break;
         case '长期目标': snap.bio.longTermGoal = e.value; done(e, `长期目标=${e.value}`); break;
+        case '性格': {
+          // 性格：**只有 NPC**。主角的性格由性格页那 16 个滑块定，注入「人格核心」读的就是滑块那份；
+          // 两边都写会各说各话（旧列指令 npc.<id>.p 当年也是这么拦的，见 mortalCommands.js:341）。
+          if (snap.kind === 'player') { skipped.push(`[${e.id}] 主角不记性格（由滑块掌握）`); break; }
+          const raw = String(e.value).trim();
+          // requireAll：**写入口要五段写满**（缺一段就报一条，写进「本轮更新」报告）。
+          // 读档口不能要 —— 老档里缺段的要照原样读出来，见 personalityCodex.parsePersonalityText。
+          const parsed = parsePersonalityText(raw, { requireAll: true });
+          // 逐段校验，哪段不合格丢哪段、不整串作废 —— 错的那几段写进报告，其余段照收。
+          // 校验放在这里而不是 parseEditBlock：格式问题不该把整批修改语句一起打回。
+          for (const err of parsed.errors) skipped.push(`[${e.id}] 性格 ${err}`);
+          const v = normalizePersonalityText(raw);
+          snap.identity.personality = v;
+          // notes：能被接受但值得记一笔的（两套框架方向打架、DISC 两位写了同一个型）
+          done(e, `性格 ⇒ ${v}${parsed.notes.length ? `　（${parsed.notes.join('；')}）` : ''}`);
+          break;
+        }
+        case '承诺1': case '承诺2': case '承诺3': {
+          // 承诺三槽位：**只有 NPC**。主角的承诺由玩家自己掌握，AI 一律不许替他许 ——
+          // 玩家预设的「决策禁区」里就写着「禁止替 {{user}} 决定其自身承诺」。
+          if (snap.kind === 'player') { skipped.push(`[${e.id}] 主角不记承诺（由玩家自己掌握）`); break; }
+          const raw = String(e.value).trim();
+          // 「空」是清空口令：承诺办完、食言、作废时写它把槽位腾出来（写「无」「没有了」读不出是清空）
+          // 其余走归一：三段收成「要做什么｜欠了谁｜什么时候到期」，半角竖线、多余空白一并修掉。
+          const v = (raw === '空' || raw === '无' || raw === '-') ? '' : normalizePromiseText(raw);
+          snap.bio[e.field === '承诺1' ? 'promise1' : e.field === '承诺2' ? 'promise2' : 'promise3'] = v;
+          done(e, `${e.field}${v ? ` ⇒ ${promiseSummaryText(v)}` : '（已清空）'}`);
+          break;
+        }
         case '技能': {
           const list = Array.isArray(snap.skills) ? [...snap.skills] : [];
           if (e.subField) {
@@ -1033,7 +1176,7 @@ const EMPTY_ARR = (v) => !Array.isArray(v) || !v.length;
  *   · 特质   = 当前特质词条加成的合计（程序按快照特质栏实时求和，AI 只读）
  *   · 装备   = 随身装备「属性」词条的合计（程序按已装备物品实时求和，AI 只读）
  *   · 生效   = 自身 + 特质 + 装备；战斗、比斗、伤害计算、强弱判断一律取它
- * 为什么要写成多段：AI 原先只看到「物攻 15」（自身值），既不知道武器给了多少，
+ * 为什么要写成多段：只给「物攻 15」（自身值）时，AI 既不知道武器给了多少，
  * 也拿不到可以代入伤害公式的数，于是自己编一个「武器 12」出来。
  * 只读「特质」「装备」两列、只写「自身」这一列，是防止加成被写回属性数字（越演越虚高）的关键。
  */
@@ -1111,28 +1254,48 @@ function attrTriadItems(rows) {
 export function v2SnapshotText(v2, opts = {}) {
   if (!v2) return '（无快照）';
   const snap = opts?.snap || null;
+  // opts.only：只输出列出的字段（正文阶段的「在场人物档案」用，见 placeholderExtractor）。
+  // 不传时行为与以前逐字一致 —— 演化阶段走的就是不传这条路径。
+  const only = Array.isArray(opts?.only) && opts.only.length ? new Set(opts.only) : null;
+  const want = k => !only || only.has(k);
   // 技能行的耗灵力/回复量按这个角色自己的池现算，保证与属性栏同口径（晋阶后自动更新）
   const skillCtx = poolCtxOf(snap || v2);
   const legacyEq = snap?.equipment;
   const inventory = snap?.inventory;
   const L = [];
   const row = (k, v) => {
-    if (v === '' || v == null) return;
+    if (!want(k) || v === '' || v == null) return;
     L.push(`${k}：${v}`);
   };
-  L.push(`【角色 ${v2.id} · ${v2.kind}】`);
+  if (!only) L.push(`【角色 ${v2.id} · ${v2.kind}】`);
   row('名称', v2.名称);
   row('性别', v2.性别);
   row('种族', v2.种族);
   row('境界', v2.境界);
   row('灵根', v2.灵根);
+  // 身份必须让 AI 看见自己上一轮写了什么，否则它会每轮凭想象重写一遍（性格栏就吃过这个亏）。
+  // 值带履历（`外门弟子 → 内门弟子`）；写修改语句时只写**当前**身份，没变就不写。
+  row('身份', v2.身份);
+  // 性格：排在身份后面 —— 正文档案块（${在场人物}）与每轮演化共用同一套行序，
+  // 排在这里，写他的对白之前先读到他的性子。落盘的与注入的都是中文短版（见 personalityCodex.js），
+  // 长版（每项带一句解释）只给界面看。主角没有这一行（值在 legacyToV2 里就置空了）。
+  row('性格', personalityShortText(v2.性格));
+  // 自身修炼倍率 = 灵根倍率 × 装备倍率，**在这里现算**（与下面属性行同口径：属性也是现算的）。
+  // 为什么不读 identity.cultivationRate：那是落盘缓存，只在存档写盘时刷新 ⇒ 改了公式或数值表之后，
+  // 同一份提示词会出现「参数段 ×13.53 / 角色卡 ×3」两个数打架（2026-09-26 实测）。
+  // 拿不到生效数值表（调用方没传 opts.tables）时才回退读缓存 —— 免得用内置表覆盖玩家改过的表。
+  // 不含当地灵气、世界因子与运气 —— 那三项每场都变，由 AI 现算，这里不给。
+  if (snap && want('修炼倍率')) {
+    const rate = opts.tables ? cultivationRate(snap, opts.tables) : snap.identity?.cultivationRate;
+    row('修炼倍率', rate ? `×${rate}（灵根 × 装备）` : '');
+  }
   row('年龄', v2.年龄 ? `${v2.年龄} 岁` : '');
   row('寿元', v2.寿元 || '');
   row('状态', v2.状态);
 
   // ---- 属性：三段口径（自身＋特质＋装备＝生效）----
   // 特质加成与装备加成一样由系统实时算：这里从快照的特质栏现算，AI 写进「自身」的会被视为它的裸值
-  const rows = snap ? attrRows(snap, opts.traitMods ?? traitModsOf(snap)) : null;
+  const rows = snap && want('属性') ? attrRows(snap, opts.traitMods ?? traitModsOf(snap)) : null;
   const triad = attrTriadItems(rows);
   if (triad.length) {
     L.push(ATTR_TRIAD_HEADER);
@@ -1154,7 +1317,7 @@ export function v2SnapshotText(v2, opts = {}) {
   row('地点', v2.地点);
   if (Array.isArray(v2.坐标) && v2.坐标.length >= 2) row('坐标', `${v2.坐标[0]},${v2.坐标[1]}`);
   row('灵石', v2.灵石);
-  if (v2.装备 && typeof v2.装备 === 'object') {
+  if (want('装备') && v2.装备 && typeof v2.装备 === 'object') {
     const parts = [];
     for (const s of V2_EQUIP_NAMED) {
       if (v2.装备[s]) parts.push(`${s}=${equipValueWithMods(v2.装备[s], legacyEq, inventory)}`);
@@ -1166,22 +1329,29 @@ export function v2SnapshotText(v2, opts = {}) {
     }
     row('装备', parts.length ? parts.join(' · ') : '（空）');
   }
-  if (!EMPTY_ARR(v2.储物袋)) {
+  if (want('储物袋') && !EMPTY_ARR(v2.储物袋)) {
     L.push('储物袋：');
     for (const it of v2.储物袋) L.push(`  · ${v2ItemText(it)}`);
   }
-  if (!EMPTY_ARR(v2.关系)) {
+  if (want('关系') && !EMPTY_ARR(v2.关系)) {
     L.push('关系：');
     for (const r of v2.关系) L.push(`  · ${r.对象}｜${r.身份 || ''}｜${r.好感 ?? 0}`);
   }
   row('背景', v2.背景);
-  if (v2.生平) L.push(`生平：${v2.生平}`);
+  if (want('生平') && v2.生平) L.push(`生平：${v2.生平}`);
   row('内心', v2.内心);
   row('短期目标', v2.短期目标);
   row('长期目标', v2.长期目标);
+  // 承诺三槽位（只有 NPC 会有值）：必须让 AI 看见自己上轮写了什么，
+  // 否则它会重复许愿、或者漏掉已经了结该腾出来的槽位。空槽由 row 自动跳过。
+  // 行里是三段原文「要做什么｜欠了谁｜什么时候到期」，原样投喂、不再加工 ——
+  // AI 抄回来当新值写时，要走的是同一种格式。
+  row('承诺1', v2.承诺1);
+  row('承诺2', v2.承诺2);
+  row('承诺3', v2.承诺3);
   // 技能：把程序算好的倍率/回复量/耗灵力一并写出来，战斗推演直接照抄这里的数字，不要再自己查表或另算
   // 伤害属性也写在这一行（括号内第 2 段），战斗时据此取「生效物攻/物防」或「生效法攻/法防」
-  if (!EMPTY_ARR(v2.技能)) {
+  if (want('技能') && !EMPTY_ARR(v2.技能)) {
     const seg = v2.技能.map(s => {
       const line = skillLineText(s, skillCtx);
       if (line) return line;
@@ -1192,14 +1362,14 @@ export function v2SnapshotText(v2, opts = {}) {
     }).join('、');
     L.push(`技能：${seg}`);
   }
-  if (!EMPTY_ARR(v2.特质)) L.push(`特质：${v2.特质.map(t => (t.加成 ? `${t.名称}（${t.加成}）` : t.名称)).join('、')}`);
+  if (want('特质') && !EMPTY_ARR(v2.特质)) L.push(`特质：${v2.特质.map(t => (t.加成 ? `${t.名称}（${t.加成}）` : t.名称)).join('、')}`);
   return L.join('\n');
 }
 
-export function v2BundleText(bundle) {
+export function v2BundleText(bundle, opts = {}) {
   const ids = Object.keys(bundle || {});
   if (!ids.length) return '（暂无角色快照）';
-  return ids.map(id => v2SnapshotText(legacyToV2(bundle[id]), { snap: bundle[id] })).join('\n\n');
+  return ids.map(id => v2SnapshotText(legacyToV2(bundle[id]), { snap: bundle[id], tables: opts.tables })).join('\n\n');
 }
 
 /* ================= 十二、初始化快照校验（AI 新增角色时用） ================= */
@@ -1214,7 +1384,7 @@ const V2_INIT_FILL_NUMBER = [...V2_ATTR_NAMES];
  * 其余一律补默认值放行并把原因记进 warns。
  *
  * 为什么分两级（2026-09-20 用户需求「建档要有保底机制」）：
- *   建档块是 AI 写在正文里的，格式抖动是常态。原先「只要有一处不合格就整块丢弃」，
+ *   建档块是 AI 写在正文里的，格式抖动是常态。「只要有一处不合格就整块丢弃」，
  *   代价是那个角色**从此没有档案** —— 紧接着同一轮的 <battle> 指令点名要他参战，
  *   建局时找不到快照就把整场战斗判死，玩家卡在「剑已出鞘」谁也推不动。
  *   一个「寿元写成了八十年」的笔误，不该换来一场打不了的仗。
@@ -1247,7 +1417,7 @@ export function validateV2Snapshot(id, raw, opts = {}) {
     if (nameRaw == null || String(nameRaw).trim() === '') warns.push(`名称缺失，已按「${name}」兜底`);
     v2.名称 = name;
   }
-  // 其余必填文本：缺了就补默认值（不再打回）
+  // 其余必填文本：缺了就补默认值（不打回）
   const TEXT_DEFAULTS = { 性别: '男', 种族: '人族', 境界: '凡人', 灵根: '无灵根', 状态: '一切正常', 动作: '', 地点: '' };
   for (const k of V2_INIT_REQUIRED_STRING) {
     if (k === '名称' || k === '气血' || k === '法力') continue;
@@ -1260,6 +1430,29 @@ export function validateV2Snapshot(id, raw, opts = {}) {
   if (!['男', '女', '无'].includes(String(v2.性别).trim())) {
     warns.push(`性别「${v2.性别}」不合法，已归一为「${normGender(v2.性别)}」`);
     v2.性别 = normGender(v2.性别);
+  }
+  // 身份：允许缺省（老存档、没有社会身份的角色都写空），但必须归一成字符串，免得数组/对象流进履历
+  if (v2.身份 != null && typeof v2.身份 !== 'string') {
+    warns.push('「身份」不是文本，已按空值处理');
+    v2.身份 = '';
+  }
+  // 承诺三槽位：允许缺省，但要归一成字符串，并按三段格式收一遍。
+  // 老存档里躺着的可能是纯一句话、也可能带半角竖线；读档时统一成「要做什么｜欠了谁｜什么时候到期」。
+  for (const cn of ['承诺1', '承诺2', '承诺3']) {
+    if (v2[cn] != null && typeof v2[cn] !== 'string') {
+      warns.push(`「${cn}」不是文本，已按空值处理`);
+      v2[cn] = '';
+    } else if (v2[cn]) {
+      v2[cn] = normalizePromiseText(v2[cn]);
+    }
+  }
+  // 性格：允许缺省，但要归一成字符串。像编码就翻成人话（AI 建档时写的就是编码），
+  // 老存档里 v1 留下的中文短句认不出，原样保留。
+  if (v2.性格 != null && typeof v2.性格 !== 'string') {
+    warns.push('「性格」不是文本，已按空值处理');
+    v2.性格 = '';
+  } else if (v2.性格) {
+    v2.性格 = normalizePersonalityText(v2.性格);
   }
   for (const k of V2_INIT_REQUIRED_NUMBER) {
     if (v2[k] == null || !Number.isFinite(Number(v2[k]))) { warns.push(`「${k}」不是数字，已补 0`); v2[k] = 0; }
@@ -1319,7 +1512,7 @@ export function validateV2Snapshot(id, raw, opts = {}) {
     }
     return { 名称: name, 稀有度: String(o.稀有度 ?? '').trim(), 描述: String(o.描述 ?? '').trim(), 加成: addText };
   }).filter(Boolean);
-  for (const k of ['背景', '生平', '内心', '短期目标', '长期目标']) if (v2[k] == null) v2[k] = '';
+  for (const k of ['性格', '背景', '生平', '内心', '短期目标', '长期目标']) if (v2[k] == null) v2[k] = '';
 
   // 储物袋每项 8 字段
   v2.储物袋 = v2.储物袋.map((it, i) => {
@@ -1516,6 +1709,7 @@ export function fallbackV2Snapshot(id, opts = {}) {
   return {
     id, kind,
     名称: '', 性别: '男', 种族: '人族', 境界: '凡人', 灵根: '无灵根',
+    身份: '',
     年龄: 0, 寿元: 80, 状态: '一切正常',
     气血: '0/0', 法力: '0/0',
     物攻: 0, 物防: 0, 法攻: 0, 法防: 0, 物理穿透: 0, 法术穿透: 0, 神识: 0, 脚力: 0, 气运: 0, 魅力: 0,
@@ -1523,6 +1717,8 @@ export function fallbackV2Snapshot(id, opts = {}) {
     动作: '', 地点: '', 坐标: [0, 0], 灵石: 0,
     储物袋: [], 装备, 关系: [],
     背景: '', 生平: '', 内心: '', 短期目标: '', 长期目标: '',
+    性格: '',
+    承诺1: '', 承诺2: '', 承诺3: '',
     技能: [], 特质: [],
   };
 }

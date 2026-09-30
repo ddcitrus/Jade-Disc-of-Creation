@@ -43,7 +43,7 @@ export const AI_WEIGHTS = {
  *   score = 行动收益 − 预计承受伤害 × 风险系数 × 本动作的受伤系数 + 生存分 − 走位 / 法力成本
  *
  * 关键点：**「预计承受伤害」对每个候选动作都要扣一次**，防御只是把这次的受伤系数降到 0.6。
- * （早先的写法把防御的"减伤额"当成正收益加进去，等于给防御加了双份好处，
+ * （把防御的"减伤额"当成正收益加进去，等于给防御加了双份好处，
  *   于是敌人会一直缩在原地防御、十二个回合打不出一次伤害 —— 实测踩过这个坑。）
  * 于是「攻击 vs 防御」的真实分界是：期望伤害 > 0.4 × 预计承受伤害就该动手，
  * 而不是「期望伤害 > 1.7 × 预计承受伤害」那种只挨打不出手的错误阈值。
@@ -140,7 +140,7 @@ function evaluateAction(state, u, act, foes, ctx) {
     let bestPv = null;
     for (const t of targets) {
       const pv = previewAttack(state, u, t, attackSpec(u, t, act));
-      // 不再按「剩余血量 / 保底血线」预判击杀：攻击价值就是期望伤害（再加侧/背击的少量加成）。
+      // 攻击价值就是期望伤害（再加侧/背击的少量加成），不按「剩余血量 / 保底血线」预判击杀。
       // 能不能把人打倒、对方是死是活，交给引擎（hp 归零即退出）与战后 AI 叙事。
       let v = pv.expDamage;
       const ang = angleValue(state, u, t);
@@ -337,7 +337,7 @@ export function runEnemyTurn(state, id) {
   }
   // 兜底：这一手没交出去（候选全不可行之类），也至少摆个防御，别让这一回合空转
   if (state.actorId === id && !state.finished && !state.turn?.acted) doAction(state, id, { kind: 'defend' });
-  // 2026-09-19：出手**不再自动交出回合**了（见 battleEngine.doAction），所以这里必须显式结束。
+  // 出手**不自动交出回合**（见 battleEngine.doAction），所以这里必须显式结束。
   // 这是行动条仅有的两个推进点之一（另一个是玩家点「结束回合」按钮）；
   // 漏掉这一句，整局会永远卡在同一个敌人身上。
   if (state.actorId === id && !state.finished) endTurn(state);

@@ -113,7 +113,12 @@ export async function* sseStream(path, body, signal, { idleMs = 200000, totalMs 
 export const api = {
   listSaves: () => req('/saves'),
   getSave: (id) => req(`/saves/${id}`),
-  saveGame: (save) => req('/saves', { method: 'POST', body: save }),
+  // rollbackMemories：只有回退到某回合 / 重新生成 / 重新发送才传，声明「记忆也跟着退回那一刻」。
+  // 其余任何落盘都不传 —— 服务端会改用磁盘上已有的记忆，避免把异步追加的那条冲掉。
+  saveGame: (save, opts) => req('/saves', {
+    method: 'POST',
+    body: opts?.rollbackMemories ? { ...save, rollbackMemories: true } : save,
+  }),
   appendMemory: (id, body) => req(`/saves/${id}/memories`, { method: 'POST', body }),
   deleteSave: (id) => req(`/saves/${id}`, { method: 'DELETE' }),
   getSettings: () => req('/settings'),
@@ -128,7 +133,7 @@ export const api = {
   aiGenerate: (messages) => req('/ai/generate', { method: 'POST', body: { messages }, timeoutMs: 120000 }),
   aiStoryStream: (messages, signal) => sseStream('/ai/story', { messages }, signal), // 流式正文（可中断）
   // 演化接口自带多轮打回重写，给足 5 分钟；用户点停止时仍由 signal 立即中断
-  aiEvolve: (messages, presetType, signal, extra) => req('/ai/evolve', { method: 'POST', body: { messages, presetType, ...(extra || {}) }, signal, timeoutMs: 300000 }),
+  aiEvolve: (messages, signal, extra) => req('/ai/evolve', { method: 'POST', body: { messages, ...(extra || {}) }, signal, timeoutMs: 300000 }),
   aiTest: (ai) => req('/ai/test', { method: 'POST', body: ai ? { ai } : {}, timeoutMs: 60000 }),
   aiModels: (baseUrl, apiKey) => req('/ai/models', { method: 'POST', body: { baseUrl, apiKey }, timeoutMs: 60000 }),
   // 前缀缓存命中统计（设置页「缓存命中」面板）

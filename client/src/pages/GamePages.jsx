@@ -128,7 +128,7 @@ export function EvolutionPage({ save, updateSave, saveNow, mode }) {
           </button>
         </>
       }
-      footer={<span>剧情演化是导演层：每回合正文生成前，按长期方向与已选风格指令驱动剧情走向。</span>}
+      footer={<span>剧情演化：每回合正文生成前，先按长期方向和已选风格决定剧情走向。</span>}
     >
       {/* 长期剧情方向 */}
       <div className="section">
@@ -190,7 +190,7 @@ export function EvolutionPage({ save, updateSave, saveNow, mode }) {
             value={plot.guidance || ''}
             onChange={e => patchPlot({ guidance: e.target.value }, false)}
             onBlur={() => setPlot(plot)}
-            placeholder="导演层指令——可点上方「生成剧情指导」，也可手写。每回合正文将优先遵守此指导。"
+            placeholder="可点上方「生成剧情指导」，也可手写。每回合正文将优先遵守此指导。"
           />
         ) : (
           <div className="spoiler-blur">剧情指导已隐藏 · 含剧透</div>

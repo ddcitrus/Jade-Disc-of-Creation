@@ -8,9 +8,9 @@
 //   「基础 / 精妙 / 绝学 / 禁术」四段名降级为**纯展示标签**（每 9 品一段）：
 //     不参与任何数值，AI 也不必写。它只帮玩家一眼判断这门功法大概在什么档次。
 //
-//   为什么是「每品 ×1.2」而不是别的：
-//     · 旧版 ×1.1135（1 品 1.00 → 36 品 43.1 倍）每档只涨 11%，而当时骰子的最小步子
-//       就值 0.55 倍 ⇒ 1/2/3 品被四舍五入抹成同一个数，玩家看不出品阶差别。
+//   为什么是「每品 ×1.2」：
+//     · 涨幅必须超过骰子的最小步子（0.55 倍）——每档只涨 11% 时，1/2/3 品会被
+//       四舍五入抹成同一个数，玩家看不出品阶差别。
 //     · ×1.2 就是「高一品，强两成」，一步顶过去两步，肉眼可辨；
 //       且骰子已经改成只管运气（平均正好 1.00，见 battleDice），不会再抹平品阶。
 //     · 低品段才是主战场：实测存档里 AI 发出去的功法几乎全在 1~5 品
@@ -60,9 +60,6 @@ export const COST_RATIO_MAX_SPECIAL = 1 / 4;
 // 回复量占对应池：1 品 1/12，36 品 回满
 export const RECOVER_RATIO_MIN = 1 / 12;
 export const RECOVER_RATIO_MAX = 1;
-
-// 双耗（同时消耗气血与法力）技能的资源伤害占比
-export const RESOURCE_DAMAGE_RATIO = { 单耗: 1, 双耗: 0.35 };
 
 // ---------- 段位标签（纯展示，不参与数值） ----------
 export const SKILL_BANDS = ['基础', '精妙', '绝学', '禁术'];
@@ -129,7 +126,7 @@ export function bandOf(grade) {
 export const DICE_FACES_DEFAULT = 10;
 export const DICE_COUNT_BANDS = [1, 2, 3, 5, 8, 12];
 // 骰子段宽**独立于段位标签**（BAND_SPAN = 9 那是「基础/精妙/绝学/禁术」四个标签用的，
-// 两者曾经共用一个常量，导致骰子只走出前四段、末尾的 8d10 与 12d10 成了死代码）。
+// 两者共用一个常量时，骰子只走出前四段、末尾的 8d10 与 12d10 会变成死代码。
 export const DICE_BAND_SPAN = 6;
 
 /** 品阶 → 这颗骰子该有几颗（只管运气的稳定度，不管威力）。 */
@@ -176,11 +173,6 @@ export function rangeLabel(range) {
   return '超远';
 }
 
-/** 「三品 / 3 / 十品」→ 3；无法解析返回 null。 */
-export function gradeIndex(grade) {
-  return parseGrade(grade);
-}
-
 // ---------- 技能对象 ----------
 
 // 「类型」缺失或不合法时，按效果文本猜一次（AI 写技能时常省掉类型，开局入库与演化都走这里）
@@ -214,7 +206,7 @@ export function normalizeDmgKind(v) {
  *   · 字符串（老数据的裸技能名）
  *   · v2 中文键对象 { 名称, 类型, 品阶, 伤害属性, 攻击距离, 骰子, 效果 }
  *   · 内部结构 { name, type, grade, dmgKind, range, dice, effect }
- *   · 更老的 { name, grade, description }（含已废弃的「档次」字段——直接忽略）
+ *   · 更老的 { name, grade, description }（含「档次」字段——直接忽略）
  * 返回内部结构：
  *   { name, type, grade, band, dmgKind, range, dice, effect, dmgMult, costRatio, recoverRatio }
  *   · range  —— 攻击距离（1~8 格），AI 手写，程序只钳制

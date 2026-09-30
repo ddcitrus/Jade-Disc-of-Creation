@@ -80,22 +80,6 @@ export default function CharacterDetail({ save }) {
         <>
           <PersonalityDims dims={normalizeDims(c.personality?.dims)} readOnly />
           <div className="hint" style={{ marginTop: 8 }}>鼠标悬停可查看每个维度的含义。</div>
-          {c.personality?.scenarios?.length > 0 && (
-            <div className="section" style={{ marginTop: 16 }}>
-              <h4>情境问答</h4>
-              {c.personality.scenarios.map((s, i) => (
-                <div className="card" key={i} style={{ marginBottom: 8, fontSize: 13 }}>
-                  <div>{SCENARIO_TEXT(c, i)}</div>
-                  {(s.say || s.act) && (
-                    <div style={{ marginTop: 6, color: 'var(--gold-dim)' }}>
-                      {s.say && <div>言：「{s.say}」</div>}
-                      {s.act && <div>行：{s.act}</div>}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
         </>
       )}
 
@@ -114,7 +98,3 @@ export default function CharacterDetail({ save }) {
     </div>
   );
 }
-
-// 从 gameData 中读取情境原文（避免循环依赖，此处通过存档记录的顺序还原）
-import { SCENARIOS } from '../data/gameData.js';
-function SCENARIO_TEXT(save, i) { return SCENARIOS[i]?.text || '情境文本缺失'; }

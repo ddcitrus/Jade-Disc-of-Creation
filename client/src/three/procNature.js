@@ -273,5 +273,3 @@ export function buildProc(name) {
   return fn ? fn() : null;
 }
 
-/** 全部程序化摆件名（供枚举/测试）。 */
-export const PROC_MODEL_NAMES = Object.keys(BUILDERS).map(k => `${PROC_PREFIX}${k}`);

@@ -1,8 +1,16 @@
 // ===== 占位符提取器 =====
 // 从 save + snapshots + storyText + userInput 提取所有 ${xxx} 占位符的实际内容
 // 对应「青竹正文Agent V1」预设中的 ${玩家状态快照} ${玩家物品} ${当前玩家输入} 等
+//
+// 只登记「有真实数据来源」的名字。取不到值的名字不写进映射 —— 预设引用它们时，
+// replacePlaceholders 会渲染成「（未提供：xxx）」，比登记一个恒为空的字符串更好排查。
+// 2026-09-24 清掉的 12 个无生产者名字：开局设定、灵兽摘要、灵兽结构化摘要、当前任务、
+// 待领取任务、外部天机裁决、战斗协议、双修协议、秘境协议、修为奖励正文落地、
+// 离场人物、隐藏剧情续写约束。（想要离场人物请用 ${离场NPC}，它读 save.npcs。）
 
-import { snapshotToStateText, slotValueText } from '../data/snapshotSchema.js';
+import { snapshotToStateText, slotValueText, normalizeEquipment } from '../data/snapshotSchema.js';
+import { legacyToV2, v2SnapshotText } from '../data/snapshotV2.js';
+import { getEffectiveTables } from '../data/numericTuning.js';
 import { personalityTraitText } from '../data/gameData.js';
 import { buildProtocolSegments } from '../data/mortalProtocols.js';
 import { buildSkill, skillCoefText, poolCtxOf } from '../data/skillCodex.js';
@@ -26,12 +34,8 @@ export function extractPlaceholders(save, snapshots = {}, ctx = {}) {
     ? buildPersonalityCore(playerSnap, save)
     : '（主角快照未初始化）';
 
-  // 开局设定：save.story.opening / save.world.opening 全项目零写入（无生产者）。
-  // 2026-09-16 按要求去掉空值占位文本；将来建档时若写入开局，这里会自动生效。
-  map['开局设定'] = save?.story?.opening || save?.world?.opening || '';
-
   map['玩家状态快照'] = playerSnap
-    ? buildPlayerStateSnapshot(playerSnap)
+    ? buildPlayerStateSnapshot(playerSnap, getEffectiveTables(settings))
     : '（主角快照未初始化）';
 
   map['玩家物品'] = playerSnap
@@ -43,23 +47,8 @@ export function extractPlaceholders(save, snapshots = {}, ctx = {}) {
     : '（无技能）';
 
   map['玩家功法'] = playerSnap
-    ? buildCultivationArts(playerSnap.cultivationArts, playerSnap.techniqueMasteries)
+    ? buildCultivationArts(playerSnap.cultivationArts)
     : '（无功法）';
-
-  // ⚠ 灵兽字段现状（2026-09-16 查证）：人物快照里根本没有灵兽栏 ——
-  //   建档模板 NEW_CHAR_V2_TEMPLATE、演化白名单 EDIT_FIELDS、mortalCommands 的 beasts
-  //   三条写入路径都不写灵兽（beasts 指令进来就 skipped），全项目无生产者。
-  //   2026-09-16 按要求去掉空值占位文本（原先输出「（无灵兽）」/ 裸 []，都是提示词噪音）。
-  //   若将来补全灵兽链路，注意两点：
-  //   ① 读的键是英文 spiritBeasts（与快照的中文键风格不一致）；
-  //   ② validateV2Snapshot 用 { ...raw } 不丢未知键，AI 自发写的「灵兽」会被保留但这里读不到。
-  map['灵兽摘要'] = playerSnap?.spiritBeasts?.length
-    ? playerSnap.spiritBeasts.map(b => `${b.name || '无名灵兽'}（${b.realm || '未知'}境界）`).join('、')
-    : '';
-
-  map['灵兽结构化摘要'] = playerSnap?.spiritBeasts?.length
-    ? JSON.stringify(playerSnap.spiritBeasts, null, 2)
-    : '';
 
   map['百艺合成结果'] = playerSnap?.cultivationArts
     ? buildHundredArts(playerSnap.cultivationArts)
@@ -67,31 +56,8 @@ export function extractPlaceholders(save, snapshots = {}, ctx = {}) {
 
   map['人物关系'] = buildRelations(playerSnap, npcs);
 
-  // ⚠ 任务系统无生产者：save.missions 在存档里根本不存在（建档/演化都不写）。
-  //   2026-09-16 按要求去掉空值占位文本；将来接入任务系统时这里自动生效。
-  map['当前任务'] = save?.missions?.active?.length
-    ? save.missions.active.map(m => `· ${m.name || m.id}：${m.desc || ''}`).join('\n')
-    : '';
-
-  map['待领取任务'] = save?.missions?.available?.length
-    ? save.missions.available.map(m => `· ${m.name || m.id}：${m.desc || ''}`).join('\n')
-    : '';
-
   map['主角长期规划'] = playerSnap?.bio?.longTermGoal || '（未设定长期规划）';
 
-  // ===== 独立前端协议组 =====
-  // ⚠ 这一组读的字段全项目无生产者（2026-09-16 查证），按要求去掉空值占位文本：
-  //   · 战斗协议：mortalCommands 把战斗状态写进「快照的」status.inBattle，
-  //     这里读的却是 save.world.inBattle（对象 + 键名双重错位）→ 恒为假。
-  //     要救只需改读取源，条件分支与 buildBattleProtocol 都还在。
-  //   · 秘境协议：save.world.inSecretRealm 全仓零引用。
-  //   · 外部天机裁决 / 双修协议 / 修为奖励正文落地：纯常量，源码里没有数据分支。
-  map['外部天机裁决'] = '';
-  map['战斗协议'] = save?.world?.inBattle ? buildBattleProtocol(save) : '';
-  map['双修协议'] = '';
-  map['秘境协议'] = save?.world?.inSecretRealm ? '当前处于秘境中' : '';
-  map['修炼结算显示协议'] = '（本轮无修炼结算）';
-  map['修为奖励正文落地'] = '';
   map['本轮运行时追加规则'] = settings?.textRules?.customStyle || '';
 
   // ===== 状态栏与正文渲染协议组 =====
@@ -120,13 +86,8 @@ export function extractPlaceholders(save, snapshots = {}, ctx = {}) {
   // Chat History 由调用方注入（历史消息）
   map['Chat History'] = storyText || '';
 
-  // 在场人物
-  map['在场人物'] = buildOnSceneCharacters(playerSnap, npcs, save);
-
-  // 离场人物：⚠ 无生产者（旧值恒为硬编码「（暂无）」，名字像却永远不说真话）。
-  // 2026-09-16 按要求去掉输出。**真数据在隔壁 `${离场NPC}`**（读 save.npcs 里 group==='离场人物'），
-  // 外部预设想拿离场人物请引用 `${离场NPC}`。
-  map['离场人物'] = '';
+  // 在场人物（档案块：身份 / 状态 / 装备 / 关系 / 技能 / 目标 / 承诺 / 背景 / 生平）
+  map['在场人物'] = buildOnSceneCharacters(playerSnap, npcs, save, getEffectiveTables(settings));
 
   // 世界设定
   map['世界地理和时间'] = buildWorldGeo(save);
@@ -141,8 +102,6 @@ export function extractPlaceholders(save, snapshots = {}, ctx = {}) {
   map['状态写入规则'] = '（本阶段只生成剧情正文，不输出状态块；状态与快照演化由独立的演化阶段处理。）';
   map['当前输入事实校准'] = userInput ? `以本轮玩家输入为事实校准基准：${userInput}` : '（本轮无具体输入，按当前处境自然推进）';
   map['剧情事件指导'] = ctx.plotEvolution || '（无特殊指导，按当前处境自然推进）';
-  // ⚠ 无生产者：纯常量，源码里没有数据分支。2026-09-16 按要求去掉输出。
-  map['隐藏剧情续写约束'] = '';
   map['地图实体'] = w.location
     ? `${w.location.name}${w.location.desc ? '：' + w.location.desc : ''}`
     : '（无地图实体）';
@@ -175,8 +134,8 @@ export function extractPlaceholders(save, snapshots = {}, ctx = {}) {
     const nm = snap?.identity?.name;
     if (!nm) continue;
     const loc = snap?.action?.location;
-    // 不在当前地点的角色视为后台人物
-    if (loc && w.location?.name && loc !== w.location.name) {
+    // 不在当前地点的角色视为后台人物（判定口径与「在场人物」一致，否则同一个人会两处都出现）
+    if (loc && w.location?.name && !samePlace(loc, w.location.name)) {
       backstage.push(`· ${nm}（${loc}）：${snap?.action?.action || '按自身目标缓慢推进'}`);
     }
   }
@@ -201,16 +160,22 @@ function buildPersonalityCore(snap, save) {
   return parts.join('\n') || '（未设定）';
 }
 
-function buildPlayerStateSnapshot(snap) {
-  return snapshotToStateText(snap);
+// tables：生效数值表（由调用方从 settings 取）。带上它是为了让「修炼倍率」这类
+// 现算出来的行跟参数段同口径 —— 玩家改过「装备品阶基准」时也不会两处不一致。
+function buildPlayerStateSnapshot(snap, tables) {
+  return snapshotToStateText(snap, tables);
 }
 
 function buildItemList(inventory, equipment) {
   const parts = [];
   if (equipment) {
-    const w = slotValueText(equipment.weapon);
-    const a = slotValueText(equipment.armor);
-    const acc = slotValueText(equipment.accessory);
+    // ⚠ 必须先归一再看：AI 有时把整件物品写在了「分组」位置上，分组里于是留下一堆叫
+    //   name/type/grade 的坏键；直接 slotValueText 会把这些字段名当槽位名喂给模型
+    //   （"护甲：甲身:青色杂役袍服、name:青色杂役袍服、type:装备…"）。归一顺手把这些清掉。
+    const eq = normalizeEquipment(equipment);
+    const w = slotValueText(eq.weapon);
+    const a = slotValueText(eq.armor);
+    const acc = slotValueText(eq.accessory);
     if (w) parts.push(`武器：${w}`);
     if (a) parts.push(`护甲：${a}`);
     if (acc) parts.push(`饰品：${acc}`);
@@ -240,18 +205,13 @@ function buildSkillList(skills, char) {
   return lines.length ? lines.join('\n') : '（无技能）';
 }
 
-function buildCultivationArts(arts, masteries) {
+function buildCultivationArts(arts) {
   const parts = [];
   if (arts && typeof arts === 'object') {
     for (const [k, v] of Object.entries(arts)) {
       if (v && v.tier && v.tier !== '未入门') {
         parts.push(`· ${mapArtName(k)}：${v.tier}（进度 ${v.progress || 0}%）`);
       }
-    }
-  }
-  if (masteries && typeof masteries === 'object') {
-    for (const [k, v] of Object.entries(masteries)) {
-      if (v && v.level) parts.push(`· ${k}：${v.level}`);
     }
   }
   return parts.join('\n') || '（百艺未入门）';
@@ -271,12 +231,11 @@ function buildHundredArts(arts) {
 
 function buildRelations(playerSnap, npcs) {
   const parts = [];
-  if (playerSnap?.social?.bondedToPlayer) parts.push('· 与主角有羁绊');
   if (playerSnap?.bio?.rawRelations?.length) {
     for (const r of playerSnap.bio.rawRelations) {
       // 关系对象有两种历史形态，必须都认（否则新版数据会渲染成「· undefined：」混进提示词）：
-      //   旧版 { target, relation, desc }
-      //   新版 { targetId, label, favorability }
+      //   形态一 { target, relation, desc }
+      //   形态二 { targetId, label, favorability }
       const who = r?.target || r?.name || r?.targetId;
       const what = r?.relation || r?.label || '';
       if (!who && !what) continue; // 空条目直接跳过，宁可少一行也不写 undefined
@@ -285,27 +244,55 @@ function buildRelations(playerSnap, npcs) {
   }
   for (const [id, snap] of npcs) {
     if (snap?.identity?.name) {
-      const rel = snap.social?.bondedToPlayer ? '（与主角有羁绊）' : '';
-      parts.push(`· ${snap.identity.name}：${snap.identity.realm || ''}${rel}`);
+      parts.push(`· ${snap.identity.name}：${snap.identity.realm || ''}`);
     }
   }
   return parts.join('\n') || '（暂无关系）';
-}
-
-function buildBattleProtocol(save) {
-  return `当前处于战斗中。时间：${save.world?.timeLabel || ''}，地点：${save.world?.location?.name || ''}`;
 }
 
 function buildProgressionProtocol() {
   return `正文结束后生成 2-3 个推进选项，供玩家选择下一步行动。选项应简洁、具体、可操作。`;
 }
 
-function buildOnSceneCharacters(playerSnap, npcs, save) {
+// ---- 在场人物档案（正文阶段） ----
+// 这些字段是正文 AI 用得上的：装备决定他穿什么、拿什么；目标和承诺决定他下一步要干什么、答应过谁什么；
+// 性格决定他遇事怎么反应、话怎么说；关系、技能、背景、生平补上这个人的来历与本事。数值（攻防气血）
+// 不在其中 —— 正文不参与伤害结算，协议里也明令禁止正文 AI 自己算伤害，给了只会诱导它写数字。
+// 渲染直接复用演化阶段的 v2SnapshotText（传 only 筛字段），两处口径因此完全一致。
+// ⚠ 这里的顺序不决定输出顺序 —— v2SnapshotText 自己那一套行序说了算（性格排在长期目标之后）。
+const DOSSIER_FIELDS = ['身份', '性格', '状态', '装备', '关系', '技能', '短期目标', '长期目标', '承诺1', '承诺2', '承诺3', '背景', '生平'];
+
+// 同一地点：完全相等，或一方包含另一方。
+// 存档里的地点写法不统一 —— 实测 2026-09-28：玩家在「天南/落云宗 · 迎仙镇 · 悦来客栈 · 二楼天字甲号房」，
+// 柳三娘在「天南/落云宗 · 迎仙镇 · 悦来客栈」，同一间客栈的两个写法。严格相等会把她判成离场，
+// 于是「此刻在场」下一个名字都没有，人明明就站在眼前。
+export function samePlace(a, b) {
+  const x = String(a || '').trim();
+  const y = String(b || '').trim();
+  if (!x || !y) return false;
+  return x === y || x.includes(y) || y.includes(x);
+}
+
+// 单个角色的档案块：姓名（境界）作标题，其余字段逐行缩进两格
+function npcDossierText(snap, tables) {
+  const v2 = legacyToV2(snap);
+  if (!v2) return '';
+  const name = String(v2.名称 || v2.id || '').trim();
+  if (!name) return '';
+  const head = v2.境界 ? `${name}（${v2.境界}）` : name;
+  const body = v2SnapshotText(v2, { snap, tables, only: DOSSIER_FIELDS });
+  const indented = body.split('\n').filter(l => l.trim()).map(l => '  ' + l).join('\n');
+  return indented ? `· ${head}\n${indented}` : `· ${head}`;
+}
+
+function buildOnSceneCharacters(playerSnap, npcs, save, tables) {
   const parts = [];
   if (playerSnap?.identity?.name) parts.push(`· ${playerSnap.identity.name}（主角）`);
-  for (const [id, snap] of npcs) {
-    if (snap?.identity?.name && snap.action?.location === save?.world?.location?.name) {
-      parts.push(`· ${snap.identity.name}（${snap.identity.realm || ''}）`);
+  const here = save?.world?.location?.name;
+  for (const [, snap] of npcs) {
+    if (samePlace(snap?.action?.location, here)) {
+      const dossier = npcDossierText(snap, tables);
+      if (dossier) parts.push(dossier);
     }
   }
   return parts.join('\n') || '（独自一人）';

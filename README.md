@@ -242,8 +242,7 @@ client/
     │   ├── contracts.js          末尾硬约束（篇幅、视点、输出形态……）
     │   ├── evolution.js          演化契约与默认规则
     │   ├── assistant.js          天道助手、生平压缩、记忆整理、摘要
-    │   ├── templates.js          新角色快照模板
-    │   └── tokens.js             占位符对照表
+    │   └── templates.js          新角色快照模板
     │
     ├── three/                三维相关
     │   ├── loadVrm.js / vrmAnimator.js / mixamoRig.js      模型加载与动作

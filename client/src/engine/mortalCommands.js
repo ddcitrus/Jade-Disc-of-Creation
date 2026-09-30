@@ -23,7 +23,7 @@
 
 // 储物袋口径与本层其它代码一致：储物袋 = 「拥有清单」，数量含穿在身上的那件。
 // 所以穿 / 脱装备都不改数量（用 ensureInvEntry 保证清单里有这条），只有消耗 / 转出才真的减。
-import { ensureInvEntry } from '../data/snapshotSchema.js';
+import { ensureInvEntry, toCoords } from '../data/snapshotSchema.js';
 
 // ---------- 通用小工具 ----------
 const isPlainObj = v => v != null && typeof v === 'object' && !Array.isArray(v);
@@ -214,18 +214,17 @@ export const NPC_COLUMN_FIELDS = {
   '4': { composed: 'status' },
   '5': { path: 'identity.linggen' },
   '6': { path: 'identity.specialConstitution' },
-  '7': { path: 'identity.appellation' },
   '9': { composed: 'note' },
   '10': { path: 'bio.background' },
   '12': { path: 'bio.innerThought' },
   '16': { composed: 'action' },
-  '19': { path: 'portraitPrompt' },
+  // '19'（画像提示 / portraitPrompt）：2026-09-28 随「去掉所有肖像功能」删除。
+  // 该字段全项目零读取，AI 写进来的内容会被 applyColumn 原样留在 legacy.columns 里可查。
   '26': { path: 'economy.spiritStones', type: 'number' },
   '27': { path: 'bio.currentMotive' },
   '28': { path: 'bio.shortTermGoal' },
   '29': { path: 'bio.longTermGoal' },
-  '30': { skip: true },   // 专属灵兽列表 → beast 域
-  '31': { path: 'status.inBattle', type: 'boolean' },
+  '30': { skip: true },   // 专属灵兽列表：原打算归到灵兽域，该域已于 2026-09-24 整体删除；此列只进 legacy.columns 留档
   '34': { path: 'action.appearance' },
 };
 
@@ -234,7 +233,7 @@ export const NPC_COLUMN_LABELS = {
   '0': 'ID', '1': '名字|性别', '2': '境界|身份', '3': '性格', '4': '当前状态/Buffs',
   '5': '灵根', '6': '特殊体质', '7': '对玩家称呼', '9': '备注', '10': '背景/简介',
   '12': '内心想法/动机', '13': '人际关系（镜像·只读）', '15': '好感度（镜像·只读）',
-  '16': '动作|穿着|位置|身段|样貌', '19': '画像提示', '21': '身体/隐秘状态', '22': '欲望值', '23': '愉悦值',
+  '16': '动作|穿着|位置|身段|样貌', '21': '身体/隐秘状态', '22': '欲望值', '23': '愉悦值',
   '26': '当前灵石', '27': '当前动机', '28': '短期目标', '29': '长期目标',
   '30': '专属灵兽', '31': '战斗状态', '34': '容貌与身姿',
 };
@@ -334,6 +333,13 @@ function applyColumn(snap, col, value, applied) {
 
   if (!def || def.skip) return applied;
 
+  // 主角的性格由「性格」页那 16 个滑块决定（注入给 AI 的「人格核心」用的也是那一份）——
+  // 演化阶段 AI 通过 NPC 列写进来的那句会与滑块各说各话（实测滑块「仁慈 6＝愿意保留余地」，
+  // 而 AI 写进来的是「冷酷、支配欲强、权谋自负」）。主角这一格一律不收，原值按上面的
+  // legacy.columns 留档，仍可在快照页「Mortal 原始列」里查。
+  // NPC 没有滑块，他们的性格只能靠这一格，照旧写。
+  if (def.path === 'identity.personality' && snap.kind === 'player') return applied;
+
   const text = typeof value === 'string' ? value.trim() : value;
   if (text === '' || text == null) return applied;
 
@@ -351,8 +357,16 @@ function applyColumn(snap, col, value, applied) {
     if (seg[1]) { snap.identity.gender = seg[1]; applied.push(`identity.gender ⇒ ${seg[1]}`); }
   } else if (def.composed === 'realmRole') {
     if (seg[0]) { snap.identity.realm = seg[0]; applied.push(`identity.realm ⇒ ${seg[0]}`); }
-    // 第 2 列的身份段：身份履历由 role./identity 指令单独维护，这里只留档不擅自追加
-    if (seg[1]) applied.push(`身份（留档）⇒ ${seg[1]}`);
+    // 第 2 列的身份段：写进与「身份」修改语句同一格（identity.identityRoles）。
+    // ⚠ 2026-09-28 之前这里只 push 一行日志就把值丢掉（注释写的是「只留档不擅自追加」），
+    // 于是走老式列格式这一支写的身份永远进不了界面 —— 而界面那行读的正是这个数组。
+    // 与末项相同就忽略，免得身份没变的回合被逐轮重写成一长串重复。
+    if (seg[1]) {
+      const roles = Array.isArray(snap.identity.identityRoles) ? [...snap.identity.identityRoles] : [];
+      if (roles[roles.length - 1] !== seg[1]) roles.push(seg[1]);
+      snap.identity.identityRoles = roles;
+      applied.push(`identity.identityRoles ⇒ ${seg[1]}`);
+    }
   } else if (def.composed === 'status') {
     if (isPlainObj(value)) {
       snap.status = deepMergeInto(snap.status, value);
@@ -684,11 +698,10 @@ function applyAssign(snap, cmd, applied, skipped) {
   switch (head) {
     case 'cr': {
       // cr.C1 = 境界/进度  |  cr.C1.p = 42  |  cr.C1.p += 5
-      // 修为进度只住 identity.realmProgress 一格（主角与 NPC 同一口径；主角原有的
-      // player.progress 抽屉已于 2026-09-22 废弃）。读取必须只看这一格 —— 原先「先看
-      // identity 再看 player」的写法里，identity.realmProgress 的默认值是 0 而不是空值，
-      // `??` 永远不会回落到 player，于是每次都从 0 起算再覆盖写回，`+=` 既不累加、
-      // 还会把已有进度吃成增量本身（历史 bug）。
+      // 修为进度只住 identity.realmProgress 一格（主角与 NPC 同一口径，没有 player.progress 抽屉）。
+      // 读取必须只看这一格：identity.realmProgress 的默认值是 0 而不是空值，
+      // 写「identity 取不到再落回 player」的话 `??` 永远不会触发，每次都从 0 起算再覆盖写回，
+      // `+=` 既不累加、还会把已有进度吃成增量本身。
       if (parts[2] === 'p' || parts[2] === 'progress') {
         const cur = Number(snap.identity?.realmProgress) || 0;
         const v = value === '' ? cur : (num(value) ?? cur);
@@ -770,11 +783,12 @@ function applyAssign(snap, cmd, applied, skipped) {
       return;
     }
     case 'pr': {
-      const seg = String(value).split('|');
-      snap.portraitNeedsRefresh = true;
-      snap.portraitRefreshReason = (seg[0] || '').trim();
-      snap.portraitRefreshGuidance = (seg[1] || '').trim();
-      applied.push('肖像刷新标记');
+      // 2026-09-28（用户：「去掉所有肖像功能」）：整块静默丢弃，连提示也不再产生。
+      // 原委：2026-09-24 写入端已删（portraitNeedsRefresh / portraitRefreshReason /
+      // portraitRefreshGuidance 三字段全项目零读取、也不在快照模板里，存盘即被丢掉）；
+      // 但当时仍 push 一条 skipped ⇒ 界面每轮弹「N 条更新没能生效：肖像刷新指令已失效…」。
+      // 源头是给 AI 的桥接契约把 `pr.` 留在 state 指令前缀示例里（cr./hp./mp./ca./pr.），
+      // AI 照抄着把「角色当前状态」全挂 pr. 写 ⇒ 每轮刷屏。示例已同步删除。
       return;
     }
     case 'ca': {
@@ -813,16 +827,31 @@ function applyAssign(snap, cmd, applied, skipped) {
       const path = parts.slice(2).join('.');
       if (!path) return;
       // 字段白名单：只允许写快照已知分域，防止越权改动存档其它部分
-      // ⚠️ `player` 域已于 2026-09-22 从白名单移除 —— 那个「主角专有」块整体废弃后，
+      // ⚠️ `player` 域不在白名单里 —— 放开它只会让 AI 一句 `character.B1.player.x = 1`
       //    放开它只会让 AI 一句 `character.B1.player.x = 1` 就把废弃块重新造回来。
-      if (!/^(identity|stats|status|action|bio|economy|equipment|skills|traits|inventory|social|cultivationArts|techniqueMasteries|portraitPrompt|adult|legacy)\./.test(path)) {
+      // 2026-09-24：`social` / `adult` / `techniqueMasteries` 三个域的快照字段已整体删除，
+      // 白名单同步撤掉，免得 AI 又把值写回一个不存在的域。
+      // 2026-09-28：`portraitPrompt` 随「去掉所有肖像功能」从白名单撤掉。
+      if (!/^(identity|stats|status|action|bio|economy|equipment|skills|traits|inventory|cultivationArts|legacy)\./.test(path)) {
         skipped.push(`不允许直接改写 ${path}，已忽略`);
         return;
+      }
+      // ⚠ 装备分域还要再查一层（2026-09-27）：上面的白名单只看了**第一段**（`equipment.`），
+      // 后面写什么键都照建 —— AI 实测自造出 `equipment.accessory_2` 这种不存在的分组，
+      // 再被 normalizeItemShape 逐字段炸成一堆幽灵物品进储物袋。
+      if (path.startsWith('equipment.')) {
+        const grp = path.slice('equipment.'.length).split('.')[0];
+        if (!EQUIP_GROUP_SLOT_KEYS[grp]) {
+          skipped.push(`装备分组「${grp}」不存在，已忽略（可用：weapon / armor / accessory / treasure / technique）`);
+          return;
+        }
       }
       const cur = getPath(snap, path);
       let next = value;
       if (op === '+=' && num(value) != null && num(cur) != null) next = num(cur) + num(value);
       else if (op === '-=' && num(value) != null && num(cur) != null) next = num(cur) - num(value);
+      // 坐标是数组字段：AI 走这条通用路径时会写成 "12,45" 这类文本，统一成 [x, y]
+      if (path === 'action.coordinates') next = toCoords(next, cur);
       setPath(snap, path, next);
       applied.push(`${path} ⇒ ${String(next).slice(0, 30)}`);
       return;
@@ -913,6 +942,19 @@ export function normalizeItemEntry(raw) {
   };
 }
 
+// 装备分组里**真槽位名**的白名单：normalizeItemShape 只认这些键是槽位。
+// weapon / armor 用具名键；accessory / treasure / technique 正常是 6 格数组（数字下标，
+// 写成对象时键就是 '0'…'5'）。underwear / body 是老键，历史上确实这么写过，保留。
+// 不在名单里的键（name / type / grade… 这类物品字段名）是 AI 写错结构留下的坏数据，
+// 既不当槽位也不补物品 —— 见调用处那段注释。
+const EQUIP_GROUP_SLOT_KEYS = {
+  weapon: new Set(['right', 'left']),
+  armor: new Set(['head', 'inner', 'armor', 'hands', 'legs', 'feet', 'cloak', 'underwear', 'body']),
+  accessory: new Set(['0', '1', '2', '3', '4', '5']),
+  treasure: new Set(['0', '1', '2', '3', '4', '5']),
+  technique: new Set(['0', '1', '2', '3', '4', '5']),
+};
+
 // 装备组 → 类型/子类的兜底推断（AI 只写物品名时，至少让类型栏不是空的）
 const SLOT_TYPE_HINT = {
   weapon: { type: '装备', subtype: '武器' },
@@ -980,10 +1022,29 @@ export function normalizeItemShape(input) {
 
   const next = { ...eq };
   for (const [group, val] of Object.entries(eq)) {
+    // ⚠ **分组名本身也要在白名单里**（2026-09-27 补）。
+    // 上一轮（2026-09-26）只给「组内的键」加了白名单，漏了「分组名」：
+    // AI 走 `character.<id>.equipment.<任意名>` 通用路径自造了一个不存在的分组（实测 `accessory_2`），
+    // 这里 canon 取不到 → 退化成对分组对象**无脑按 key 遍历** → 把整件装备的
+    // name/type/grade/appearance/desc 当成槽位名，各补出一件假物品塞进储物袋
+    // （观音灵玉 → 法宝 / 二十八品 / 通体无瑕的灵玉 / 蕴含奇特法力的古玉 四件幽灵）。
+    // 所以：分组名不认识 ⇒ **整组原样留着**（不猜、不补、不登记、不遍历）。
+    const canon = EQUIP_GROUP_SLOT_KEYS[group] || null;
+    if (!canon) { next[group] = val; continue; }
     if (Array.isArray(val)) next[group] = val.map(v => fixSlot(v, group));
     else if (isPlainObj(val)) {
+      // 组内的键同理：**只把「真槽位名」当槽位**。
+      // 踩过的坑（2026-09-26）：AI 有时把整件物品整个写在了「分组」的位置上
+      // （`equipment.armor = {"name":"青色杂役袍服","type":"装备","grade":"一品",…}`），
+      // 而这里原先对分组对象**无脑按 key 遍历**，于是把 name/type/subtype/grade/appearance/desc
+      // 这些**字段名**当成了槽位名，逐字段补出一件件「假物品」写回存档 ——
+      // 界面上凭空多出 6 件幽灵防具（名字叫「装备」「防具」「一品」），还会往储物袋里补登幽灵条目。
+      // 所以：认不出的 key 原样留在那里（不猜、不补、不登记），交给显示层按坏数据处理。
       const g = {};
-      for (const [k, v] of Object.entries(val)) g[k] = fixSlot(v, group);
+      for (const [k, v] of Object.entries(val)) {
+        if (!canon.has(String(k))) { g[k] = v; continue; }
+        g[k] = fixSlot(v, group);
+      }
       next[group] = g;
     } else next[group] = fixSlot(val, group);
   }
